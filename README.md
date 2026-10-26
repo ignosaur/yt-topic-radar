@@ -55,7 +55,7 @@ Then open `chrome://extensions`, enable Developer mode, **Load unpacked**, and p
 | Gemini API key | `.env.local` or Settings drawer | — |
 | Server port | `PORT` env var | `3456` |
 | Gemini models | `MODEL_CANDIDATES` in `lib/summarizer.ts` | `gemini-3-flash-preview` → `gemini-3.8-flash` → `gemini-3.5-flash` → `gemini-flash-latest` |
-| Support URL / freemium limit | `MONETIZATION_CONFIG` in `lib/storage.ts` | `free_byok`, 10 topics, Ko-fi |
+| Support URL / freemium limit | `MONETIZATION_CONFIG` in `lib/storage.ts` | `free_byok`, 10 topics, Razorpay |
 
 Model names change; the fallback chain handles keys that do not have the newest model yet.
 

@@ -42,8 +42,8 @@ export interface BackupPayload {
 export const MONETIZATION_CONFIG = {
   mode: "free_byok" as "free_byok" | "freemium",
   freeTopicLimit: 10,
-  supportUrl: "https://ko-fi.com/yttopicradar",
-  proUpgradeUrl: "https://ko-fi.com/yttopicradar",
+  supportUrl: "https://rzp.io/rzp/ypHoq1R",
+  proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
 };
 
 export const STARTER_TOPICS: Record<string, string[]> = {
