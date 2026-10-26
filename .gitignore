@@ -1,0 +1,16 @@
+# Dependencies
+node_modules/
+
+# Environment variables & secrets
+.env
+.env.*
+!.env.example
+
+# Local runtime cache
+.local-radar-store.json
+
+# Build outputs
+dist/
+build/
+.output/
+.wxt/

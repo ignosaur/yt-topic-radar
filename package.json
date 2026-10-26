@@ -1,0 +1,22 @@
+{
+  "name": "yt-topic-radar",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "scan": "bun run index.ts",
+    "ui": "bun run server.ts",
+    "build:ext": "cp ui/digest.html extension/digest.html"
+  },
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^7"
+  },
+  "dependencies": {
+    "@google/genai": "^2.31.0",
+    "idb-keyval": "^6.3.0",
+    "youtubei.js": "^18.3.0"
+  }
+}
