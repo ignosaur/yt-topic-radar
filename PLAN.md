@@ -78,8 +78,8 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 
 ### C. End-to-End User Flow
 1. **Install & Open Extension:** Opens the full-tab **Topic Radar Dashboard**.
-2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic).
-3. **Scan Topic:** Click `[Scan Now]` (or let background `chrome.alarms` poll). Progress indicator shows: *Searching YouTube → Filtering 15 videos down to top 4 → Summarizing...*
+2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic). Free tier supports up to 5 topics.
+3. **Scan Topic:** Click `[Scan Now]` (Pro: or let background `chrome.alarms` poll pinned channels). Progress indicator shows: *Searching YouTube → Filtering 15 videos down to top 4 → Summarizing...*
 4. **Read the Digest:**
    - **Top Card:** Cross-Video Topic Synthesis (*"Across 4 videos this week, here is the consensus and what's new..."*).
    - **Video Digest Cards:** Shows Video Type badge (`Tutorial`, `News`, `Podcast`, `Review`), Watch Verdict (`Yes` / `Skim timestamps` / `Skip`), 2-sentence Core Thesis, and expandable Chapter Breakdown + Type-Specific details with clickable `[MM:SS]` links.
@@ -130,9 +130,13 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 - **Phase 2.5 — Post-MVP Refinements: ✅ Done**
   - Reactive sidebar, topic search/starring, usage metrics, value pill and Support CTA. Details in §8.
 - **Phase 3 — Browser Extension Side Panel & Engine Wiring: 🚧 Partial**
-  - Manifest declares `sidePanel`; the dashboard still talks to the local Bun server over `/api/*`, so unpacked-extension wiring and background messaging remain.
-- **Phase 4 — Channel Pinning & RSS Auto-Polling: ⏳ Not started**
-  - Let users pin discovered high-signal channels to their topics for zero-cost background RSS updates.
+  - Manifest declares `sidePanel`; the dashboard still talks to the local Bun server over `/api/*`, so background messaging remains.
+  - Done so far: `ui/digest.html` (copied to `extension/digest.html`) rewrites `/api/*` to `http://localhost:3456` when `chrome.runtime` is present, so the unpacked extension runs against the local Bun server. Clicking the toolbar icon still opens a full tab (`chrome.tabs.create`).
+  - Remaining: switch icon click to `chrome.sidePanel.open()`, route API calls through the service worker (avoids CORS/origin quirks), add `http://localhost:3456/*` to `host_permissions`, bundle JS instead of shipping raw module HTML.
+  - Packaging (documented + verified): `zip -r yt-topic-radar-extension.zip .` from `extension/` for ZIP + "Load unpacked"; `chrome://extensions` → **Pack extension** for a `.crx` (keep the generated `.pem` for future updates). Chrome blocks arbitrary `.crx` installs, so the ZIP path is the primary distribution channel.
+- **Phase 4 — Pro Tier Gating + Background Automation: ⏳ Not started**
+  - **All four Phase 4 features are paid-only**: background alarms, auto-updates, notifications, and unlimited topics (free tier capped at **5**).
+  - Requires flipping `MONETIZATION_CONFIG` from `"free_byok"` to `"freemium"` and introducing an `isPro` entitlement. Details and DoD in §9.
 
 ---
 
@@ -199,7 +203,74 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - `lib/storage.ts`: Export `MONETIZATION_CONFIG` (`mode: "free_byok" | "freemium"`, `freeTopicLimit: 10`, `supportUrl: string`).
   - `ui/digest.html`: Render the live `"⏱️ X.X hrs saved • Y videos distilled"` pill in the header/sidebar footer alongside a `☕ Support` button linked to `supportUrl`.
 - **Constraints:** Must not block or nag BYOK users in default `"free_byok"` mode; non-intrusive 1-line footer/header placement.
+- **Superseded by Phase 4 (§9):** the default `"free_byok"` mode and `freeTopicLimit: 10` are replaced by `"freemium"` with a 5-topic free cap once Phase 4 lands.
 - **Definition of Done (DoD):**
   - [x] Top header / sidebar footer displays live formatted time saved (e.g., `⏱️ 20m saved • 2 videos distilled`) calculated from `state.metrics` (with fallback calculation from existing cached digests so current data immediately shows non-zero value).
   - [x] Clicking `☕ Support` opens the configured donation/tip URL (Ko-fi / Buy Me a Coffee / Stripe Payment Link) in a new tab.
   - [x] `MONETIZATION_CONFIG` is exposed in `/api/state` so switching `mode` to `"freemium"` enforces `freeTopicLimit` with an upgrade prompt in 0 code changes.
+
+---
+
+## 9. Phase 4 — Pro Tier: Gating, Background Alarms, Auto-Updates & Notifications
+
+### Overall Context, Goal, Scope & Constraints
+- **Context:** Phase 2.5 shipped `MONETIZATION_CONFIG` as a config hook only — the app runs in `"free_byok"` mode with `freeTopicLimit: 10` and a `canAddMoreTopics()` check that never fires. Phase 4 turns the four automation features into the paid tier.
+- **Decision:** **Background alarms, auto-updates, notifications and unlimited topics are Pro-only.** Free tier keeps manual scans and is capped at **5 topics**.
+- **Goal:** Establish an `isPro` entitlement boundary enforced on both UI and server, then build the paid automation on top of it.
+- **In-Scope:** `lib/storage.ts`, `server.ts`, `ui/digest.html`, `extension/manifest.json`, `extension/background.js`.
+- **Constraints:**
+  - Free users must not be able to trigger polling at all — not just hide the button.
+  - Entitlement checks must be enforced server-side (`POST /api/sync`, `GET /api/rss`), not only in the UI.
+  - Local-first and backward compatible: existing `.local-radar-store.json`, `IndexedDB` and exported `.json` backups keep working. No entitlement data in backups.
+  - No new dependency for licence checking in this phase — a local `isPro` flag is enough; swap in a real licence key later.
+
+### Task 1: Entitlements + Freemium Config
+- **Context:** `MONETIZATION_CONFIG.mode` is `"free_byok"`, so `canAddMoreTopics()` (`ui/digest.html`) short-circuits and no limit is enforced. `/api/state` exposes `monetization` but no entitlement.
+- **Scope:**
+  - `lib/storage.ts`: flip `mode` to `"freemium"`, set `freeTopicLimit: 5`; add `getEntitlements()` / `setEntitlements()` returning `{ isPro: boolean }` (default `false`), persisted in `chrome.storage.local` / the CLI store and **excluded** from `BackupPayload`.
+  - `server.ts`: return `entitlements` in `GET /api/state`.
+  - `ui/digest.html`: read `state.entitlements?.isPro` as the single source of truth for gating (not `mode` alone).
+- **DoD:**
+  - [ ] `/api/state` returns `monetization.mode === "freemium"`, `freeTopicLimit: 5` and `entitlements.isPro`.
+  - [ ] Entitlement survives reload and is absent from exported backup JSON.
+
+### Task 2: Free Tier Cap — 5 Topics
+- **Context:** Topic creation happens in three places in `ui/digest.html`: the add-topic form submit handler, the starter-pack pills, and the AI sub-topic chips — all of which already call `canAddMoreTopics()`.
+- **Scope:**
+  - `ui/digest.html`: `canAddMoreTopics()` blocks when `!isPro && topics.length >= 5`; message reads *"Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts."* Show a persistent upgrade CTA in the sidebar footer at the cap.
+  - `server.ts`: reject `POST /api/sync` when a non-Pro request would grow `topics` beyond 5 (trims or 403) so the limit cannot be bypassed via direct API calls.
+- **DoD:**
+  - [ ] Adding a 6th topic as a free user is blocked in all three UI paths with the upgrade message.
+  - [ ] A direct `POST /api/sync` with 6 topics is rejected for a free user and accepted for Pro.
+  - [ ] Topics 1–5 behave exactly as before.
+
+### Task 3: Background Alarms (Pro only)
+- **Context:** `extension/manifest.json` already declares `alarms` but `extension/background.js` only calls `chrome.tabs.create` — no alarms are ever created.
+- **Scope:** `extension/background.js` creates the RSS alarm on install/startup **only when `isPro`** and clears it on downgrade. Poll pinned channels through the existing `GET /api/rss?channelId=` endpoint on the local Bun server.
+- **DoD:**
+  - [ ] Pro user gets a periodic alarm; free user has none registered (`chrome.alarms.getAll()` empty).
+  - [ ] Downgrading to free clears the alarm without requiring a browser restart.
+
+### Task 4: Auto-Updates + Notifications (Pro only)
+- **Context:** `seenVideoIds` already tracks summarised videos in `lib/storage.ts`, and `/api/rss` returns latest videos per pinned channel. Nothing compares them.
+- **Scope:**
+  - `extension/manifest.json`: add `"notifications"` to `permissions`.
+  - `extension/background.js`: on each alarm, diff RSS results against last-seen channel video IDs in `chrome.storage.local`; on new videos, `chrome.notifications.create()` with a click handler that opens the side panel/tab on the relevant topic. Update the badge count.
+- **DoD:**
+  - [ ] A newly published video on a pinned channel produces exactly one notification per video ID (no repeats across alarm runs).
+  - [ ] Clicking the notification opens the digest focused on that topic.
+  - [ ] No polling, diffing or notification code runs for free users.
+
+### Task 5: Documentation & Distribution
+- **Scope:** README monetization table and Phase 4 status; note that the extension requires `bun run ui` running locally (Phase 3 debt).
+- **DoD:**
+  - [ ] README configuration table reflects `freemium` + 5-topic cap and lists the four Pro features.
+  - [ ] Packaging steps (ZIP / `.crx`) documented and reproducible.
+
+### Recommended implementation order
+1. Task 1 (entitlements + config) → 2 (topic cap) — establishes the paid boundary first.
+2. Task 3 (alarms) → 4 (auto-updates + notifications) — build on the gate, not before it.
+3. Task 5 last.
+
+### Demo asset (not shipped)
+A 35s silent walkthrough (`YT-Topic-Radar-Personal-Finance-Demo-With-Results.mp4`) was produced with Playwright recording + `ffmpeg` captions: add "Personal Finance" → Top 2 → scan → scroll results and synthesis. Recording scripts (`demo_*.spec.ts`), `demo-videos*/` and the extension ZIP are local artifacts, not part of the product build.
