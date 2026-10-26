@@ -14,15 +14,21 @@ import {
 import {
   exportBackupJson,
   getApiKey,
+  getMetrics,
+  getSyncState,
   importBackupJson,
   markVideoSeen,
+  MONETIZATION_CONFIG,
+  saveSyncState,
   saveTopicDigest,
+  updateMetrics,
 } from "./lib/storage";
 
-// Self-check assertions on core logic (Anti-Slop Filter, Chunking, Backup/Restore)
-function runSelfChecks() {
+// Self-check assertions on core logic (Anti-Slop Filter, Chunking, Backup/Restore, Concurrency)
+export async function runSelfChecks() {
   if (formatTimestamp(125) !== "02:05") throw new Error("formatTimestamp failed");
   if (parseDurationSec("12:30") !== 750) throw new Error("parseDurationSec failed");
+  if (!MONETIZATION_CONFIG.supportUrl) throw new Error("MONETIZATION_CONFIG missing");
 
   // Shorts (<3m) must be dropped (-1)
   const shortScore = scoreCandidate({
@@ -82,10 +88,33 @@ function runSelfChecks() {
   if (chunks.length < 2) {
     throw new Error("Expected >25m transcript to split into multiple 20-min windows");
   }
+
+  // Concurrent storage writes (saveSyncState + updateMetrics in parallel) must not drop updates
+  const initialSync = await getSyncState();
+  const initialMetrics = await getMetrics();
+  const quotedTopic = 'Agentic Eval & "Definition of Done"';
+  await Promise.all([
+    saveSyncState({
+      ...initialSync,
+      topicMeta: { ...(initialSync.topicMeta || {}), [quotedTopic]: { starred: true } },
+    }),
+    updateMetrics({ timestampClicks: 1 }),
+  ]);
+  const [afterSync, afterMetrics] = await Promise.all([getSyncState(), getMetrics()]);
+  if (!afterSync.topicMeta?.[quotedTopic]?.starred) {
+    throw new Error("Concurrent saveSyncState lost topicMeta update");
+  }
+  if (afterMetrics.timestampClicks !== initialMetrics.timestampClicks + 1) {
+    throw new Error("Concurrent updateMetrics lost timestampClicks increment");
+  }
+  // Restore clean test key
+  const cleanedMeta = { ...(afterSync.topicMeta || {}) };
+  delete cleanedMeta[quotedTopic];
+  await saveSyncState({ ...afterSync, topicMeta: cleanedMeta });
 }
 
 async function main() {
-  runSelfChecks();
+  await runSelfChecks();
 
   const topic = process.argv[2] || "AI Coding Agents";
   const maxVideos = Number(process.argv[3] || 3);
@@ -158,7 +187,9 @@ async function main() {
   console.log(`Suggested Sub-topics: ${synthesis.suggestedSubtopics.join(", ")}`);
 }
 
-main().catch((err) => {
-  console.error("Error:", err);
-  process.exit(1);
-});
+if (import.meta.main) {
+  main().catch((err) => {
+    console.error("Error:", err);
+    process.exit(1);
+  });
+}

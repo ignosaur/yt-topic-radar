@@ -9,8 +9,9 @@ node_modules/
 # Local runtime cache
 .local-radar-store.json
 
-# Build outputs
+# Build outputs & local indexes
 dist/
 build/
 .output/
 .wxt/
+.codegraph/

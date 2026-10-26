@@ -103,12 +103,16 @@ export function scoreCandidate(v: Omit<VideoCandidate, "signalScore">): number {
 }
 
 /**
- * Step 1 & 2: Search topic on YouTube and apply the Anti-Slop Quality Filter.
+ * Step 1 & 2: Search topic on YouTube and apply the Anti-Slop Quality Filter (with filter stats).
  */
-export async function searchAndFilterTopic(
+export async function searchAndFilterTopicWithStats(
   topic: string,
   maxResults = 4
-): Promise<VideoCandidate[]> {
+): Promise<{
+  candidates: VideoCandidate[];
+  slopFilteredCount: number;
+  totalEvaluated: number;
+}> {
   const yt = await getInnertube();
   const search = await yt.search(topic, {
     type: "video",
@@ -116,16 +120,22 @@ export async function searchAndFilterTopic(
   });
 
   const candidates: VideoCandidate[] = [];
+  let totalEvaluated = 0;
+  let droppedCount = 0;
 
   for (const item of search.videos) {
     const raw = item as any;
     const videoId: string = raw.id || raw.video_id || "";
     const title: string = raw.title?.toString?.() || raw.title?.text || "";
     if (!videoId || !title) continue;
+    totalEvaluated++;
 
     const durationSec: number =
       raw.duration?.seconds || parseDurationSec(raw.duration?.text || "");
-    if (durationSec < 180) continue; // Skip Shorts and < 3 min videos
+    if (durationSec < 180) {
+      droppedCount++;
+      continue; // Skip Shorts and < 3 min videos
+    }
 
     const viewText =
       raw.view_count?.toString?.() || raw.short_view_count?.toString?.() || "0";
@@ -162,12 +172,28 @@ export async function searchAndFilterTopic(
     const signalScore = scoreCandidate(base);
     if (signalScore > 0) {
       candidates.push({ ...base, signalScore });
+    } else {
+      droppedCount++;
     }
   }
 
-  return candidates
-    .sort((a, b) => b.signalScore - a.signalScore)
-    .slice(0, maxResults);
+  const sorted = candidates.sort((a, b) => b.signalScore - a.signalScore);
+  const selected = sorted.slice(0, maxResults);
+  const slopFilteredCount = droppedCount + Math.max(0, sorted.length - selected.length);
+
+  return {
+    candidates: selected,
+    slopFilteredCount,
+    totalEvaluated,
+  };
+}
+
+export async function searchAndFilterTopic(
+  topic: string,
+  maxResults = 4
+): Promise<VideoCandidate[]> {
+  const res = await searchAndFilterTopicWithStats(topic, maxResults);
+  return res.candidates;
 }
 
 /**

@@ -130,3 +130,73 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - Docked Side Panel view next to YouTube playback + 1-click `window.speechSynthesis` audio read-out.
 - **Phase 4 — Channel Pinning & RSS Auto-Polling:**
   - Let users pin discovered high-signal channels to their topics for zero-cost background RSS updates.
+
+---
+
+## 8. Phase 2.5 — Post-MVP Refinements (4 Tracked Issues)
+
+### Overall Context, Goal, Scope & Constraints
+- **Context:** Phase 1 (Core Engine) and Phase 2 (Digest Dashboard UI + Extension Scaffold) are live and tested against real YouTube topics (`"AI Coding Agents"`). During initial usage testing, 4 UX/product gaps surfaced around sidebar state reactivity, scaling to many topics, usage instrumentation, and monetization/support hooks.
+- **Goal:** Make the sidebar immediately reactive after scans, scale cleanly to 20–50+ subscribed/sub-topics, track privacy-safe local value metrics (`secondsSaved`, `videosSummarized`, `slopVideosFiltered`), and surface a value-driven Support/Tip CTA with a config-ready Pro tier hook.
+- **In-Scope:** `lib/youtube.ts`, `lib/summarizer.ts`, `lib/storage.ts`, `server.ts`, `ui/digest.html`.
+- **Out-of-Scope (Constraints):**
+  - No external cloud database or mandatory user login.
+  - Must remain 100% backward-compatible with existing `.local-radar-store.json`, `IndexedDB`, and exported `.json` backup files.
+  - Never transmit raw user API keys or browsing history to external analytics endpoints.
+
+---
+
+### Task 1: Immediate Sidebar Topic Green Status & Video Count Badge After Scan
+- **Context:** In `ui/digest.html:196`, the green status dot (`hasDigest`) is rendered inside `renderAll()`. However, when `btnScanTopic` finishes (`ui/digest.html:598`), the `finally` block only calls `renderMainDigest()`, leaving `#topicsList` stale until the user clicks a different topic.
+- **Goal:** Ensure a topic's status dot turns green and displays its video count immediately upon scan completion without switching topics.
+- **Scope:** `ui/digest.html` (`btnScanTopic` handler at lines `574–600` and `#topicsList` row template at lines `185–214`).
+- **Constraints:** No extra network round-trips; update state in-memory from the `/api/scan` response and re-render both panes in one pass.
+- **Definition of Done (DoD):**
+  - [ ] Clicking `Scan Topic Now` on an unscanned (gray dot) topic turns its sidebar dot emerald-green (`bg-emerald-400`) the instant `/api/scan` succeeds, without clicking another topic.
+  - [ ] Scanned topics display a compact video count badge (e.g., `2`) in the sidebar row.
+
+---
+
+### Task 2: Scalable Sidebar UX for Growing Subscribed & AI-Suggested Topics
+- **Context:** `SyncState` (`lib/storage.ts:10–14`) stores a flat `topics: string[]`, `/api/sync` (`server.ts:59`) only persists `topics`, `pinnedChannels`, and `minDurationSec`, and `ui/digest.html:184–214` renders a flat vertical list with "Starter Topic Packs" permanently expanded below it.
+- **Goal:** Keep the sidebar fast to navigate when a user has 15–50+ custom topics and AI-suggested sub-topics.
+- **Scope:**
+  - `lib/storage.ts`: Add optional `topicMeta?: Record<string, { starred?: boolean }>` to `SyncState` and merge it inside `importBackupJson()`.
+  - `server.ts`: Preserve `topicMeta` in `POST /api/sync`.
+  - `ui/digest.html`: Add search/filter input, status filter tabs (`All | Ready | ★ Starred`), star/pin toggle (`☆/★`) that pins favorites to the top of the list, and auto-collapsing `<details>` wrapper for Starter Topic Packs when `topics.length >= 4`.
+- **Constraints:** Existing `topics: string[]` arrays without `topicMeta` must continue to work with zero migration errors.
+- **Definition of Done (DoD):**
+  - [ ] Users can filter subscribed topics by text query and switch between `All`, `Ready` (scanned), and `★ Starred` tabs.
+  - [ ] Clicking `☆` on any topic stars/pins it to the top of the list and persists across reloads and JSON backup exports/imports.
+  - [ ] The "Starter Topic Packs" section automatically collapses into a single `<details>` accordion once the user has `>= 4` subscribed topics.
+
+---
+
+### Task 3: Privacy-Safe Usage Instrumentation & "Time Saved" Metrics
+- **Context:** Currently, `searchAndFilterTopic()` (`lib/youtube.ts:108`) discards how many low-signal/short videos were filtered out, `VideoSummary` (`lib/summarizer.ts:17`) does not retain `durationSec`, and `lib/storage.ts` records no usage telemetry.
+- **Goal:** Track local product usage & user value metrics (`scansCompleted`, `videosSummarized`, `slopVideosFiltered`, `secondsSaved`, `timestampClicks`, `ttsPlays`, `backupsExported`) and provide an opt-in hook for anonymous product analytics.
+- **Scope:**
+  - `lib/youtube.ts`: Add `searchAndFilterTopicWithStats()` (or attach stats) to report `slopFilteredCount` alongside selected candidates.
+  - `lib/summarizer.ts`: Copy `durationSec` from `VideoCandidate` onto `VideoSummary`.
+  - `lib/storage.ts`: Add `UsageMetrics` interface, `getMetrics()`, `recordMetric()`, include `metrics` in `BackupPayload` (`exportBackupJson` / `importBackupJson`), and add `telemetryOptIn?: boolean` to `SyncState`.
+  - `server.ts`: Return `metrics` in `GET /api/state`, auto-increment scan/video/time-saved counters in `POST /api/scan`, and expose `POST /api/metrics` for UI interaction events (`timestampClicks`, `ttsPlays`).
+- **Constraints:** 100% local-first by default; never log or transmit API keys or private user data.
+- **Definition of Done (DoD):**
+  - [ ] Every completed scan increments `scansCompleted`, `videosSummarized`, `slopVideosFiltered`, and `secondsSaved` (calculated from video `durationSec` minus estimated reading time).
+  - [ ] Clicking `[MM:SS]` timestamps, `🔊 Read Aloud`, and `⬇️ Export .json` increments `timestampClicks`, `ttsPlays`, and `backupsExported` via `/api/metrics`.
+  - [ ] `UsageMetrics` persists across restarts and is included in 1-click JSON Export/Import backups.
+  - [ ] Settings drawer includes an opt-in toggle (`"Share anonymous usage stats"`) and displays the detailed metrics breakdown.
+
+---
+
+### Task 4: Value-Driven Support / Tip Link & Config-Ready Pro Tier Hook
+- **Context:** Users currently get full BYOK summarization at $0 server cost to the developer, but there is no visible indicator of how much time the tool has saved them and no way for happy users to tip/support or unlock Pro features.
+- **Goal:** Surface a live **"⏱️ X.X hrs saved"** value badge paired with a **`☕ Support / Tip`** CTA, plus a single configuration object to enable a Freemium/Pro topic limit later without refactoring.
+- **Scope:**
+  - `lib/storage.ts`: Export `MONETIZATION_CONFIG` (`mode: "free_byok" | "freemium"`, `freeTopicLimit: 10`, `supportUrl: string`).
+  - `ui/digest.html`: Render the live `"⏱️ X.X hrs saved • Y videos distilled"` pill in the header/sidebar footer alongside a `☕ Support` button linked to `supportUrl`.
+- **Constraints:** Must not block or nag BYOK users in default `"free_byok"` mode; non-intrusive 1-line footer/header placement.
+- **Definition of Done (DoD):**
+  - [ ] Top header / sidebar footer displays live formatted time saved (e.g., `⏱️ 20m saved • 2 videos distilled`) calculated from `state.metrics` (with fallback calculation from existing cached digests so current data immediately shows non-zero value).
+  - [ ] Clicking `☕ Support` opens the configured donation/tip URL (Ko-fi / Buy Me a Coffee / Stripe Payment Link) in a new tab.
+  - [ ] `MONETIZATION_CONFIG` is exposed in `/api/state` so switching `mode` to `"freemium"` enforces `freeTopicLimit` with an upgrade prompt in 0 code changes.

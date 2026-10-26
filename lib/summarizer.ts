@@ -20,6 +20,7 @@ export interface VideoSummary {
   channelName: string;
   channelId: string;
   url: string;
+  durationSec?: number;
   durationText: string;
   signalScore: number;
   videoType: VideoType;
@@ -272,6 +273,7 @@ function buildSummaryObject(video: VideoCandidate, raw: any): VideoSummary {
     channelName: video.channelName,
     channelId: video.channelId,
     url: video.url,
+    durationSec: video.durationSec,
     durationText: video.durationText,
     signalScore: video.signalScore,
     videoType: raw.videoType || "news_analysis",

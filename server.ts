@@ -1,5 +1,5 @@
 import {
-  searchAndFilterTopic,
+  searchAndFilterTopicWithStats,
   fetchTimestampedTranscript,
   fetchChannelRssVideos,
 } from "./lib/youtube";
@@ -15,10 +15,13 @@ import {
   saveApiKey,
   getDigests,
   saveTopicDigest,
+  getMetrics,
+  updateMetrics,
   exportBackupJson,
   importBackupJson,
   markVideoSeen,
   STARTER_TOPICS,
+  MONETIZATION_CONFIG,
 } from "./lib/storage";
 
 const PORT = Number(process.env.PORT || 3456);
@@ -36,23 +39,26 @@ const server = Bun.serve({
       });
     }
 
-    // API: Get full state (topics, digests, starter topics, hasApiKey)
+    // API: Get full state (topics, digests, starter topics, metrics, monetization, hasApiKey)
     if (url.pathname === "/api/state" && req.method === "GET") {
-      const [sync, digests, apiKey] = await Promise.all([
+      const [sync, digests, apiKey, metrics] = await Promise.all([
         getSyncState(),
         getDigests(),
         getApiKey(),
+        getMetrics(),
       ]);
       return Response.json({
         sync,
         digests,
+        metrics,
+        monetization: MONETIZATION_CONFIG,
         starterTopics: STARTER_TOPICS,
         hasApiKey: Boolean(apiKey),
         maskedKey: apiKey ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}` : "",
       });
     }
 
-    // API: Update sync state (topics, pinnedChannels)
+    // API: Update sync state (topics, pinnedChannels, topicMeta, telemetryOptIn)
     if (url.pathname === "/api/sync" && req.method === "POST") {
       const body = (await req.json()) as any;
       const current = await getSyncState();
@@ -62,9 +68,29 @@ const server = Bun.serve({
           ? body.pinnedChannels
           : current.pinnedChannels,
         minDurationSec: body.minDurationSec ?? current.minDurationSec,
+        topicMeta:
+          body.topicMeta && typeof body.topicMeta === "object"
+            ? body.topicMeta
+            : current.topicMeta || {},
+        telemetryOptIn:
+          typeof body.telemetryOptIn === "boolean"
+            ? body.telemetryOptIn
+            : current.telemetryOptIn ?? false,
       };
       await saveSyncState(next);
       return Response.json({ ok: true, sync: next });
+    }
+
+    // API: Record usage metric event (timestampClick, ttsPlay)
+    if (url.pathname === "/api/metrics" && req.method === "POST") {
+      const body = (await req.json()) as { event?: string };
+      let metrics = await getMetrics();
+      if (body.event === "timestampClick") {
+        metrics = await updateMetrics({ timestampClicks: 1 });
+      } else if (body.event === "ttsPlay") {
+        metrics = await updateMetrics({ ttsPlays: 1 });
+      }
+      return Response.json({ ok: true, metrics });
     }
 
     // API: Save Gemini API Key
@@ -95,13 +121,18 @@ const server = Bun.serve({
           );
         }
 
-        const candidates = await searchAndFilterTopic(topic, maxVideos);
+        const { candidates, slopFilteredCount } = await searchAndFilterTopicWithStats(
+          topic,
+          maxVideos
+        );
         const summaries: VideoSummary[] = [];
+        let secondsSavedDelta = 0;
 
         for (const v of candidates) {
           const t = await fetchTimestampedTranscript(v.videoId);
           const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
           summaries.push(summary);
+          secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
           await markVideoSeen(v.videoId);
         }
 
@@ -115,7 +146,14 @@ const server = Bun.serve({
         };
         await saveTopicDigest(digest);
 
-        return Response.json({ ok: true, digest });
+        const metrics = await updateMetrics({
+          scansCompleted: 1,
+          videosSummarized: summaries.length,
+          slopVideosFiltered: slopFilteredCount,
+          secondsSaved: secondsSavedDelta,
+        });
+
+        return Response.json({ ok: true, digest, metrics });
       } catch (err: any) {
         return Response.json(
           { error: String(err?.message || err) },
