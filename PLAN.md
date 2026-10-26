@@ -49,9 +49,9 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 - **Runtime & Package Manager:** **Bun** (`package.json`, `tsconfig.json`) — lets us test the core engine directly from the CLI (`bun run`) and share the exact same TypeScript modules inside the Browser Extension.
 - **Browser Extension Framework:** **WXT** (`wxt.dev`) + React + TypeScript + Tailwind CSS (Manifest V3)
 - **YouTube Discovery & Transcripts (`lib/youtube.ts`):** Direct YouTube Innertube API (`fetch` to `/youtubei/v1/search` and `/youtubei/v1/player`) + native YouTube Channel RSS (`youtube.com/feeds/videos.xml?channel_id=...`). Zero API quota limits, runs directly in-browser or via Bun.
-- **AI Summarization (`lib/summarizer.ts`):** `@google/genai` (Gemini 2.5 Flash — 1M context window + structured JSON Schema output)
+- **AI Summarization (`lib/summarizer.ts`):** `@google/genai` with structured JSON Schema output and a fallback chain (`gemini-3-flash-preview` → `gemini-3.8-flash` → `gemini-3.5-flash` → `gemini-flash-latest`) because model availability varies by API key.
 - **Storage (`lib/storage.ts`):** `chrome.storage.sync` + `chrome.storage.local` + `IndexedDB` (`idb-keyval`) in the browser extension, plus 1-click JSON Export/Import backup; local JSON cache when testing via CLI.
-- **Audio Read-Out (Phase 3):** Browser native `window.speechSynthesis` (free) or Kokoro-82M / OpenAI TTS
+- **Audio Read-Out:** Browser native `window.speechSynthesis` (shipped in Phase 2).
 
 ---
 
@@ -63,7 +63,8 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - *Finance & Markets:* `Macroeconomics`, `Value Investing`, `Crypto Infrastructure`
   - *Science & Health:* `Longevity & Science`, `Space & Physics`
 - **Custom Topic Input:** `+ Add any topic...` input in the sidebar for arbitrary user queries (e.g., `"Next.js performance"`, `"PostgreSQL indexing"`).
-- **AI Sub-Topic & Channel Suggestions:** After scanning a topic, suggest narrower sub-topics and offer a `[📌 Pin Channel]` button for high-signal creators discovered during the scan.
+- **Topic Sidebar at Scale:** Search/filter input and `All | Ready | ★ Starred` tabs keep 20–50+ topics navigable. Topics stay a **flat list** (no parent/child nesting); starred topics pin to the top.
+- **AI Sub-Topic & Channel Suggestions:** After scanning a topic, suggest narrower sub-topics as one-click chips that are added as flat topics, and offer a `[📌 Pin Channel]` button for high-signal creators discovered during the scan.
 
 ### B. State Persistence (`lib/storage.ts` — Zero Cloud DB Required for MVP)
 1. **`chrome.storage.sync` (Up to 100 KB, auto-synced across user's Chrome profile):**
@@ -72,8 +73,8 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
    - Gemini API key (`chrome.storage.local` only for security).
    - Generated video summaries, cross-video topic syntheses, seen/dismissed video IDs (prevents re-summarizing seen videos), and cached transcripts.
 3. **1-Click Export / Import JSON Safeguard:**
-   - **`[Export Backup .json]`**: Downloads a timestamped `yt-topic-radar-backup-YYYY-MM-DD.json` containing all topics, pinned channels, and saved digests (excludes secret API key by default).
-   - **`[Import Backup .json]`**: Restores and merges topics, channels, and digest history in one click without duplicates.
+   - **`[Export Backup .json]`**: Downloads a timestamped `yt-topic-radar-backup-YYYY-MM-DD.json` containing topics, `topicMeta` (starred state, telemetry opt-in), pinned channels, saved digests, seen-video IDs and usage metrics (API key excluded).
+   - **`[Import Backup .json]`**: Restores and merges topics, channels, digest history and metrics in one click without duplicates.
 
 ### C. End-to-End User Flow
 1. **Install & Open Extension:** Opens the full-tab **Topic Radar Dashboard**.
@@ -105,7 +106,7 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 4. **"Never Miss a Point" Type-Aware Summarization (`summarizer`)**
    - **Chapter/Window Chunking for Long Videos (`> 25 mins`):** Split long transcripts into 20-minute or chapter windows so Gemini's output limit never compresses a 2-hour video into vague bullets.
    - **Rate-Limit Guard (Free-Tier BYOK Safe):** Cap concurrency to 2 requests with automatic `429` exponential backoff.
-   - Pass timestamped transcript to **Gemini 2.5 Flash** with strict structured schema:
+   - Pass the timestamped transcript to **Gemini Flash** (fallback chain above) with a strict structured schema:
      - `videoType`: `tutorial` | `news_analysis` | `podcast_interview` | `review_comparison`
      - `coreThesis`: 2-sentence spoiler-free/clickbait-busting takeaway.
      - `chapterBreakdown`: Chronological `[MM:SS]` breakdown covering every section of the video so nothing important is skipped.
@@ -122,13 +123,15 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 
 ## 7. MVP Milestones
 
-- **Phase 1 — Core Engine (`bun run` TypeScript CLI Prototype):**
-  - Build `lib/youtube.ts`, `lib/summarizer.ts`, and `lib/storage.ts` to search a topic, filter top videos, fetch timed transcripts, and run structured Gemini summarization + cross-video topic synthesis.
-- **Phase 2 — Digest Dashboard UI (WXT + React + Tailwind):**
-  - Onboarding Starter Topic pills + custom topic sidebar, Cross-Video Synthesis card, Video Digest cards with clickable `[MM:SS]` links, and 1-click JSON Export/Import backup.
-- **Phase 3 — Browser Extension Side Panel (`chrome.sidePanel`) & Read Aloud:**
-  - Docked Side Panel view next to YouTube playback + 1-click `window.speechSynthesis` audio read-out.
-- **Phase 4 — Channel Pinning & RSS Auto-Polling:**
+- **Phase 1 — Core Engine (`bun run` TypeScript CLI Prototype): ✅ Done**
+  - `lib/youtube.ts`, `lib/summarizer.ts`, `lib/storage.ts`: search, filter, timed transcripts, structured Gemini summaries, cross-video synthesis.
+- **Phase 2 — Digest Dashboard UI: ✅ Done**
+  - Starter Topic pills + custom topic sidebar, cross-video synthesis card, video digest cards with `[MM:SS]` links, Read Aloud, JSON Export/Import.
+- **Phase 2.5 — Post-MVP Refinements: ✅ Done**
+  - Reactive sidebar, topic search/starring, usage metrics, value pill and Support CTA. Details in §8.
+- **Phase 3 — Browser Extension Side Panel & Engine Wiring: 🚧 Partial**
+  - Manifest declares `sidePanel`; the dashboard still talks to the local Bun server over `/api/*`, so unpacked-extension wiring and background messaging remain.
+- **Phase 4 — Channel Pinning & RSS Auto-Polling: ⏳ Not started**
   - Let users pin discovered high-signal channels to their topics for zero-cost background RSS updates.
 
 ---
@@ -147,28 +150,28 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 ---
 
 ### Task 1: Immediate Sidebar Topic Green Status & Video Count Badge After Scan
-- **Context:** In `ui/digest.html:196`, the green status dot (`hasDigest`) is rendered inside `renderAll()`. However, when `btnScanTopic` finishes (`ui/digest.html:598`), the `finally` block only calls `renderMainDigest()`, leaving `#topicsList` stale until the user clicks a different topic.
+- **Context:** The green status dot (`hasDigest`) is rendered by `renderSidebar()`. Before this task, the `btnScanTopic` `finally` block only called `renderMainDigest()`, leaving `#topicsList` stale until the user clicked a different topic.
 - **Goal:** Ensure a topic's status dot turns green and displays its video count immediately upon scan completion without switching topics.
-- **Scope:** `ui/digest.html` (`btnScanTopic` handler at lines `574–600` and `#topicsList` row template at lines `185–214`).
+- **Scope:** `ui/digest.html` (`btnScanTopic` handler and the `#topicsList` row template inside `renderSidebar()`).
 - **Constraints:** No extra network round-trips; update state in-memory from the `/api/scan` response and re-render both panes in one pass.
 - **Definition of Done (DoD):**
-  - [ ] Clicking `Scan Topic Now` on an unscanned (gray dot) topic turns its sidebar dot emerald-green (`bg-emerald-400`) the instant `/api/scan` succeeds, without clicking another topic.
-  - [ ] Scanned topics display a compact video count badge (e.g., `2`) in the sidebar row.
+  - [x] Clicking `Scan Topic Now` on an unscanned (gray dot) topic turns its sidebar dot emerald-green (`bg-emerald-400`) the instant `/api/scan` succeeds, without clicking another topic.
+  - [x] Scanned topics display a compact video count badge (e.g., `2`) in the sidebar row.
 
 ---
 
 ### Task 2: Scalable Sidebar UX for Growing Subscribed & AI-Suggested Topics
-- **Context:** `SyncState` (`lib/storage.ts:10–14`) stores a flat `topics: string[]`, `/api/sync` (`server.ts:59`) only persists `topics`, `pinnedChannels`, and `minDurationSec`, and `ui/digest.html:184–214` renders a flat vertical list with "Starter Topic Packs" permanently expanded below it.
-- **Goal:** Keep the sidebar fast to navigate when a user has 15–50+ custom topics and AI-suggested sub-topics.
+- **Context:** `SyncState` (`lib/storage.ts`) stores a flat `topics: string[]` plus optional `topicMeta?: Record<string, { starred?: boolean }>` and `telemetryOptIn`. `POST /api/sync` persists all five fields. The sidebar renders a flat vertical list with "Starter Topic Packs" permanently expanded below it.
+- **Goal:** Keep the sidebar fast to navigate when a user has 15–50+ custom topics and AI-suggested sub-topics (stored flat, no parent/child nesting).
 - **Scope:**
   - `lib/storage.ts`: Add optional `topicMeta?: Record<string, { starred?: boolean }>` to `SyncState` and merge it inside `importBackupJson()`.
   - `server.ts`: Preserve `topicMeta` in `POST /api/sync`.
   - `ui/digest.html`: Add search/filter input, status filter tabs (`All | Ready | ★ Starred`), star/pin toggle (`☆/★`) that pins favorites to the top of the list, and auto-collapsing `<details>` wrapper for Starter Topic Packs when `topics.length >= 4`.
 - **Constraints:** Existing `topics: string[]` arrays without `topicMeta` must continue to work with zero migration errors.
 - **Definition of Done (DoD):**
-  - [ ] Users can filter subscribed topics by text query and switch between `All`, `Ready` (scanned), and `★ Starred` tabs.
-  - [ ] Clicking `☆` on any topic stars/pins it to the top of the list and persists across reloads and JSON backup exports/imports.
-  - [ ] The "Starter Topic Packs" section automatically collapses into a single `<details>` accordion once the user has `>= 4` subscribed topics.
+  - [x] Users can filter subscribed topics by text query and switch between `All`, `Ready` (scanned), and `★ Starred` tabs.
+  - [x] Clicking `☆` on any topic stars/pins it to the top of the list and persists across reloads and JSON backup exports/imports.
+  - [x] The "Starter Topic Packs" section automatically collapses into a single `<details>` accordion once the user has `>= 4` subscribed topics.
 
 ---
 
@@ -178,14 +181,14 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 - **Scope:**
   - `lib/youtube.ts`: Add `searchAndFilterTopicWithStats()` (or attach stats) to report `slopFilteredCount` alongside selected candidates.
   - `lib/summarizer.ts`: Copy `durationSec` from `VideoCandidate` onto `VideoSummary`.
-  - `lib/storage.ts`: Add `UsageMetrics` interface, `getMetrics()`, `recordMetric()`, include `metrics` in `BackupPayload` (`exportBackupJson` / `importBackupJson`), and add `telemetryOptIn?: boolean` to `SyncState`.
+  - `lib/storage.ts`: Add `UsageMetrics` interface, `getMetrics()`, `updateMetrics()`, include `metrics` in `BackupPayload` (`exportBackupJson` / `importBackupJson`), add `telemetryOptIn?: boolean` to `SyncState`, and derive a baseline from cached digests so existing users see non-zero value.
   - `server.ts`: Return `metrics` in `GET /api/state`, auto-increment scan/video/time-saved counters in `POST /api/scan`, and expose `POST /api/metrics` for UI interaction events (`timestampClicks`, `ttsPlays`).
 - **Constraints:** 100% local-first by default; never log or transmit API keys or private user data.
 - **Definition of Done (DoD):**
-  - [ ] Every completed scan increments `scansCompleted`, `videosSummarized`, `slopVideosFiltered`, and `secondsSaved` (calculated from video `durationSec` minus estimated reading time).
-  - [ ] Clicking `[MM:SS]` timestamps, `🔊 Read Aloud`, and `⬇️ Export .json` increments `timestampClicks`, `ttsPlays`, and `backupsExported` via `/api/metrics`.
-  - [ ] `UsageMetrics` persists across restarts and is included in 1-click JSON Export/Import backups.
-  - [ ] Settings drawer includes an opt-in toggle (`"Share anonymous usage stats"`) and displays the detailed metrics breakdown.
+  - [x] Every completed scan increments `scansCompleted`, `videosSummarized`, `slopVideosFiltered`, and `secondsSaved` (calculated from video `durationSec` minus estimated reading time).
+  - [x] Clicking `[MM:SS]` timestamps and `🔊 Read Aloud` increments `timestampClicks` / `ttsPlays` via `/api/metrics`; `⬇️ Export .json` increments `backupsExported` inside `exportBackupJson()`.
+  - [x] `UsageMetrics` persists across restarts and is included in 1-click JSON Export/Import backups.
+  - [x] Settings drawer includes an opt-in toggle (`"Share anonymous usage stats"`) and displays the detailed metrics breakdown.
 
 ---
 
@@ -197,6 +200,6 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - `ui/digest.html`: Render the live `"⏱️ X.X hrs saved • Y videos distilled"` pill in the header/sidebar footer alongside a `☕ Support` button linked to `supportUrl`.
 - **Constraints:** Must not block or nag BYOK users in default `"free_byok"` mode; non-intrusive 1-line footer/header placement.
 - **Definition of Done (DoD):**
-  - [ ] Top header / sidebar footer displays live formatted time saved (e.g., `⏱️ 20m saved • 2 videos distilled`) calculated from `state.metrics` (with fallback calculation from existing cached digests so current data immediately shows non-zero value).
-  - [ ] Clicking `☕ Support` opens the configured donation/tip URL (Ko-fi / Buy Me a Coffee / Stripe Payment Link) in a new tab.
-  - [ ] `MONETIZATION_CONFIG` is exposed in `/api/state` so switching `mode` to `"freemium"` enforces `freeTopicLimit` with an upgrade prompt in 0 code changes.
+  - [x] Top header / sidebar footer displays live formatted time saved (e.g., `⏱️ 20m saved • 2 videos distilled`) calculated from `state.metrics` (with fallback calculation from existing cached digests so current data immediately shows non-zero value).
+  - [x] Clicking `☕ Support` opens the configured donation/tip URL (Ko-fi / Buy Me a Coffee / Stripe Payment Link) in a new tab.
+  - [x] `MONETIZATION_CONFIG` is exposed in `/api/state` so switching `mode` to `"freemium"` enforces `freeTopicLimit` with an upgrade prompt in 0 code changes.
