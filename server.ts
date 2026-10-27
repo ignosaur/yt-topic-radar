@@ -26,16 +26,58 @@ import {
 
 const PORT = Number(process.env.PORT || 3456);
 
+// Allowed CORS origins: localhost (any port for dev) and chrome-extension pages.
+// This prevents any arbitrary website from reading user data or burning Gemini quota.
+// MV3 extension pages are already granted access via host_permissions and do not
+// require CORS headers at all, but we include them for explicit clarity.
+const ALLOWED_ORIGINS = [
+  /^https?:\/\/localhost(:\d+)?$/,
+  /^https?:\/\/127\.0\.0\.1(:\d+)?$/,
+  /^chrome-extension:\/\//,
+];
+
+function corsHeaders(req: Request): Record<string, string> {
+  const origin = req.headers.get("Origin") || "";
+  const allowed = ALLOWED_ORIGINS.some((re) => re.test(origin));
+  if (!allowed && origin) return {}; // unknown origin — no CORS headers
+  return {
+    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+    "Access-Control-Allow-Headers": "Content-Type",
+  };
+}
+
 const server = Bun.serve({
   port: PORT,
   idleTimeout: 120,
   async fetch(req) {
+    const cors = corsHeaders(req);
+
+    if (req.method === "OPTIONS") {
+      return new Response(null, { status: 204, headers: cors });
+    }
+
+    const json = (data: unknown, status = 200) =>
+      Response.json(data, { status, headers: cors });
+
     const url = new URL(req.url);
 
     // Serve the Extension Digest UI
     if (url.pathname === "/" || url.pathname === "/digest.html") {
       return new Response(Bun.file("ui/digest.html"), {
-        headers: { "Content-Type": "text/html; charset=utf-8" },
+        headers: { "Content-Type": "text/html; charset=utf-8", ...cors },
+      });
+    }
+
+    if (url.pathname === "/digest.js") {
+      return new Response(Bun.file("ui/digest.js"), {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", ...cors },
+      });
+    }
+
+    if (url.pathname === "/digest.css") {
+      return new Response(Bun.file("ui/digest.css"), {
+        headers: { "Content-Type": "text/css; charset=utf-8", ...cors },
       });
     }
 
@@ -47,7 +89,7 @@ const server = Bun.serve({
         getApiKey(),
         getMetrics(),
       ]);
-      return Response.json({
+      return json({
         sync,
         digests,
         metrics,
@@ -78,7 +120,7 @@ const server = Bun.serve({
             : current.telemetryOptIn ?? false,
       };
       await saveSyncState(next);
-      return Response.json({ ok: true, sync: next });
+      return json({ ok: true, sync: next });
     }
 
     // API: Record usage metric event (timestampClick, ttsPlay)
@@ -90,17 +132,17 @@ const server = Bun.serve({
       } else if (body.event === "ttsPlay") {
         metrics = await updateMetrics({ ttsPlays: 1 });
       }
-      return Response.json({ ok: true, metrics });
+      return json({ ok: true, metrics });
     }
 
     // API: Save Gemini API Key
     if (url.pathname === "/api/key" && req.method === "POST") {
       const body = (await req.json()) as { apiKey?: string };
       if (!body.apiKey) {
-        return Response.json({ error: "API key required" }, { status: 400 });
+        return json({ error: "API key required" }, 400);
       }
       await saveApiKey(body.apiKey);
-      return Response.json({ ok: true });
+      return json({ ok: true });
     }
 
     // API: Scan a Topic (Search -> Filter -> Transcript -> Summarize -> Synthesize)
@@ -110,14 +152,14 @@ const server = Bun.serve({
         const topic = (body.topic || "").trim();
         const maxVideos = Math.min(5, Math.max(1, Number(body.maxVideos || 3)));
         if (!topic) {
-          return Response.json({ error: "Topic is required" }, { status: 400 });
+          return json({ error: "Topic is required" }, 400);
         }
 
         const apiKey = await getApiKey();
         if (!apiKey) {
-          return Response.json(
+          return json(
             { error: "Please set your Gemini API Key in Settings first." },
-            { status: 400 }
+            400
           );
         }
 
@@ -153,31 +195,29 @@ const server = Bun.serve({
           secondsSaved: secondsSavedDelta,
         });
 
-        return Response.json({ ok: true, digest, metrics });
+        return json({ ok: true, digest, metrics });
       } catch (err: any) {
-        return Response.json(
-          { error: String(err?.message || err) },
-          { status: 500 }
-        );
+        return json({ error: String(err?.message || err) }, 500);
       }
     }
 
     // API: Poll Pinned Channel RSS
     if (url.pathname === "/api/rss" && req.method === "GET") {
       const channelId = url.searchParams.get("channelId") || "";
-      if (!channelId) return Response.json({ videos: [] });
+      if (!channelId) return json({ videos: [] });
       const videos = await fetchChannelRssVideos(channelId);
-      return Response.json({ videos });
+      return json({ videos });
     }
 
     // API: 1-Click Export Backup JSON
     if (url.pathname === "/api/backup/export" && req.method === "GET") {
-      const json = await exportBackupJson();
+      const backupJson = await exportBackupJson();
       const date = new Date().toISOString().slice(0, 10);
-      return new Response(json, {
+      return new Response(backupJson, {
         headers: {
           "Content-Type": "application/json",
           "Content-Disposition": `attachment; filename="yt-topic-radar-backup-${date}.json"`,
+          ...cors,
         },
       });
     }
@@ -187,16 +227,13 @@ const server = Bun.serve({
       try {
         const raw = await req.text();
         const stats = await importBackupJson(raw);
-        return Response.json({ ok: true, ...stats });
+        return json({ ok: true, ...stats });
       } catch (err: any) {
-        return Response.json(
-          { error: String(err?.message || err) },
-          { status: 400 }
-        );
+        return json({ error: String(err?.message || err) }, 400);
       }
     }
 
-    return new Response("Not Found", { status: 404 });
+    return new Response("Not Found", { status: 404, headers: cors });
   },
 });
 

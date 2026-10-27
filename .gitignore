@@ -15,3 +15,12 @@ build/
 .output/
 .wxt/
 .codegraph/
+
+# Extension build artifact (always regenerate with bun run build:ext + zip)
+yt-topic-radar-extension.zip
+
+# Demo recordings & throwaway Playwright specs (not part of the product build)
+demo-videos*/
+test-results/
+*.mp4
+demo_*.spec.ts

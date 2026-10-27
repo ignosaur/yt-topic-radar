@@ -46,11 +46,11 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 ## 4. Tools, APIs, and SDKs
 
 ### TypeScript Stack (Single-Stack: CLI Prototype + Chrome Extension)
-- **Runtime & Package Manager:** **Bun** (`package.json`, `tsconfig.json`) — lets us test the core engine directly from the CLI (`bun run`) and share the exact same TypeScript modules inside the Browser Extension.
-- **Browser Extension Framework:** **WXT** (`wxt.dev`) + React + TypeScript + Tailwind CSS (Manifest V3)
-- **YouTube Discovery & Transcripts (`lib/youtube.ts`):** Direct YouTube Innertube API (`fetch` to `/youtubei/v1/search` and `/youtubei/v1/player`) + native YouTube Channel RSS (`youtube.com/feeds/videos.xml?channel_id=...`). Zero API quota limits, runs directly in-browser or via Bun.
+- **Runtime & Package Manager:** **Bun** (`package.json`, `tsconfig.json`) — runs the core engine from the CLI (`bun run scan`), serves the local dashboard API (`bun run ui`), and shares the exact same TypeScript modules (`lib/`).
+- **Dashboard & Extension UI (`ui/digest.html` → `extension/`):** Vanilla HTML/TypeScript + Tailwind CSS (Manifest V3 scaffold; currently uses Tailwind Play CDN and an inline module script, which Phase 3 externalizes for MV3 CSP compliance).
+- **YouTube Discovery & Transcripts (`lib/youtube.ts`):** `youtubei.js` (`Innertube`) for topic search/metadata + direct `/youtubei/v1/player` (`ANDROID` client) for timed captions + native YouTube Channel RSS (`youtube.com/feeds/videos.xml?channel_id=...`). Zero API quota limits.
 - **AI Summarization (`lib/summarizer.ts`):** `@google/genai` with structured JSON Schema output and a fallback chain (`gemini-3-flash-preview` → `gemini-3.8-flash` → `gemini-3.5-flash` → `gemini-flash-latest`) because model availability varies by API key.
-- **Storage (`lib/storage.ts`):** `chrome.storage.sync` + `chrome.storage.local` + `IndexedDB` (`idb-keyval`) in the browser extension, plus 1-click JSON Export/Import backup; local JSON cache when testing via CLI.
+- **Storage (`lib/storage.ts`):** Dual-target module — writes to `.local-radar-store.json` when called by the Bun server/CLI (current path for both Web UI and extension), and includes `chrome.storage.sync` + `chrome.storage.local` + `IndexedDB` (`idb-keyval`) branches for standalone in-browser execution, plus 1-click JSON Export/Import backup.
 - **Audio Read-Out:** Browser native `window.speechSynthesis` (shipped in Phase 2).
 
 ---
@@ -67,45 +67,44 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 - **AI Sub-Topic & Channel Suggestions:** After scanning a topic, suggest narrower sub-topics as one-click chips that are added as flat topics, and offer a `[📌 Pin Channel]` button for high-signal creators discovered during the scan.
 
 ### B. State Persistence (`lib/storage.ts` — Zero Cloud DB Required for MVP)
-1. **`chrome.storage.sync` (Up to 100 KB, auto-synced across user's Chrome profile):**
-   - Subscribed topics, pinned channel IDs, and scan preferences (e.g., scan frequency, minimum video duration).
-2. **`chrome.storage.local` + `IndexedDB` (`idb-keyval`, gigabytes of local storage):**
-   - Gemini API key (`chrome.storage.local` only for security).
-   - Generated video summaries, cross-video topic syntheses, seen/dismissed video IDs (prevents re-summarizing seen videos), and cached transcripts.
-3. **1-Click Export / Import JSON Safeguard:**
-   - **`[Export Backup .json]`**: Downloads a timestamped `yt-topic-radar-backup-YYYY-MM-DD.json` containing topics, `topicMeta` (starred state, telemetry opt-in), pinned channels, saved digests, seen-video IDs and usage metrics (API key excluded).
-   - **`[Import Backup .json]`**: Restores and merges topics, channels, digest history and metrics in one click without duplicates.
+- **Active Path (Server-Backed UI & Extension):** All `/api/*` calls persist to `.local-radar-store.json` via `server.ts` (in-memory cached + write-serialized). Summarized video IDs are automatically recorded in `seenVideoIds` during `/api/scan`.
+- **Browser-Native Branches (Implemented in `lib/storage.ts` for standalone extension mode):**
+  1. **`chrome.storage.sync`:** Subscribed topics, `topicMeta`, `telemetryOptIn`, pinned channel IDs, and `minDurationSec`.
+  2. **`chrome.storage.local` + `IndexedDB` (`idb-keyval`):** Gemini API key (`chrome.storage.local`), generated digests (`IndexedDB` / `local`), `seenVideoIds`, and `UsageMetrics`.
+- **1-Click Export / Import JSON Safeguard:**
+  - **`[Export Backup .json]`**: Downloads a timestamped `yt-topic-radar-backup-YYYY-MM-DD.json` containing topics, `topicMeta` (starred state, telemetry opt-in), pinned channels, saved digests, seen-video IDs and usage metrics (API key excluded).
+  - **`[Import Backup .json]`**: Restores and merges topics, channels, digest history and metrics in one click without duplicates.
 
 ### C. End-to-End User Flow
-1. **Install & Open Extension:** Opens the full-tab **Topic Radar Dashboard**.
-2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic). Free tier supports up to 5 topics.
-3. **Scan Topic:** Click `[Scan Now]` (Pro: or let background `chrome.alarms` poll pinned channels). Progress indicator shows: *Searching YouTube → Filtering 15 videos down to top 4 → Summarizing...*
+1. **Install & Open Extension:** Opens the **Topic Radar Dashboard** (full tab today; Chrome `sidePanel` in Phase 3).
+2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic). Free tier supports up to 5 topics once Phase 4 lands (currently 10 in `"free_byok"` mode).
+3. **Scan Topic:** Click `[Scan Topic Now]` (Pro: or let background `chrome.alarms` poll pinned channels).
 4. **Read the Digest:**
    - **Top Card:** Cross-Video Topic Synthesis (*"Across 4 videos this week, here is the consensus and what's new..."*).
    - **Video Digest Cards:** Shows Video Type badge (`Tutorial`, `News`, `Podcast`, `Review`), Watch Verdict (`Yes` / `Skim timestamps` / `Skip`), 2-sentence Core Thesis, and expandable Chapter Breakdown + Type-Specific details with clickable `[MM:SS]` links.
-   - **Card Actions:** `[🔊 Read Aloud]`, `[📌 Pin Channel]`, `[✓ Mark Read]`.
-5. **Dive Deeper (Side Panel):** Clicking any `[MM:SS]` timestamp opens the YouTube video at that exact second on the left while keeping the structured summary docked in Chrome's `sidePanel` on the right.
+   - **Card Actions:** `[🔊 Read Aloud]`, `[📌 Pin Channel]`, `[Watch on YouTube ↗]`.
+5. **Dive Deeper (Docked Video Player):** Clicking any `[MM:SS]` timestamp opens the in-page right-hand `#videoSidePanel` drawer with an embedded YouTube player (`youtube.com/embed/...?start=...`) at that exact second alongside docked summary notes.
 
 ---
 
 ## 6. The 4-Step Pipeline (How It Works — Pressure-Tested)
 
 1. **Topic Search (`scanner`)**
-   - Query YouTube via `youtubei.js` (`Innertube`) for recent videos matching the user's topic (excluding Shorts `< 3 mins` and livestreams).
+   - Query YouTube via `youtubei.js` (`Innertube`) for videos matching the user's topic (excluding Shorts `< 3 mins`).
    - Poll native RSS feeds (`youtube.com/feeds/videos.xml?channel_id=...`) for pinned channels.
 2. **Anti-Slop Quality Filter (`filter`)**
    - Score candidates before spending LLM tokens:
-     - Parse `expandableMetadata` directly from the search payload to detect author-written chapters in **zero extra HTTP requests**.
+     - Parse `expandable_metadata` / description timestamps from the search payload to detect author-written chapters in **zero extra HTTP requests**.
      - Penalize clickbait title patterns (`"SHOCKING"`, `"IT'S OVER"`, excessive all-caps) so niche high-signal videos beat drama/reaction channels.
-     - Weight view velocity & engagement over raw channel size.
+     - Weight view velocity (`views / ageDays`) over raw channel size.
    - Select the **Top 3–5 highest-signal videos** per topic.
 3. **Timed Transcript Extraction + Native URL Fallback (`transcript`)**
-   - Pull timed captions + video chapters + description links via `youtubei.js` (`WEB` / `ANDROID` / `IOS` client context).
-   - Group into **30–60 second timestamped blocks** (`[04:30] ...`) so every extracted insight retains an exact timestamp link.
-   - **Zero-Dead-End Fallback:** If a video has disabled captions or `timedtext` is blocked (`poToken`), pass the YouTube URL directly to Gemini's native `fileData: { fileUri: youtubeUrl }` multimodal input.
+   - Pull video description + chapters via `yt.getInfo(videoId)` and timed captions via direct `/youtubei/v1/player` (`ANDROID` client context).
+   - Group into **~45-second timestamped blocks** (`[04:30] ...`) so every extracted insight retains an exact timestamp link.
+   - **Zero-Dead-End Fallback:** If a video has disabled captions or `timedtext` is empty, pass the YouTube URL directly to Gemini's native `fileData: { fileUri: video.url, mimeType: "video/mp4" }` multimodal input.
 4. **"Never Miss a Point" Type-Aware Summarization (`summarizer`)**
-   - **Chapter/Window Chunking for Long Videos (`> 25 mins`):** Split long transcripts into 20-minute or chapter windows so Gemini's output limit never compresses a 2-hour video into vague bullets.
-   - **Rate-Limit Guard (Free-Tier BYOK Safe):** Cap concurrency to 2 requests with automatic `429` exponential backoff.
+   - **Window Chunking for Long Videos (`> 25 mins`):** Split long transcripts into 20-minute windows (`chunkTranscriptByWindow`) so Gemini's output limit never compresses a multi-hour video into vague bullets.
+   - **Rate-Limit Guard (Free-Tier BYOK Safe):** Process videos and 20-minute windows sequentially (concurrency = 1) with a 35s per-request timeout, automatic `429`/`503` exponential backoff, and model fallback.
    - Pass the timestamped transcript to **Gemini Flash** (fallback chain above) with a strict structured schema:
      - `videoType`: `tutorial` | `news_analysis` | `podcast_interview` | `review_comparison`
      - `coreThesis`: 2-sentence spoiler-free/clickbait-busting takeaway.
@@ -117,7 +116,7 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
        - *Review:* Pros, cons, benchmarks, verdict.
      - `worthWatchingFull`: `"Yes"` | `"Skim timestamps"` | `"Skip (Summary has everything)"` + reason.
 5. **MV3 Service Worker Resilience**
-   - Run interactive scans inside the open **Digest Tab / Side Panel** (never killed by Chrome's 30s MV3 service worker timeout), saving each video summary progressively to `IndexedDB` as soon as it finishes. Use `background.ts` only for lightweight RSS badge checks.
+   - Run interactive scans initiated from the open **Digest Tab / Side Panel** (never inside the 30s-limited MV3 service worker); `POST /api/scan` saves the completed `TopicDigest` and updated `UsageMetrics` on the local Bun server once synthesis finishes. Use `background.js` only for toolbar action handling and (in Phase 4) lightweight RSS alarm checks.
 
 ---
 
@@ -129,11 +128,24 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - Starter Topic pills + custom topic sidebar, cross-video synthesis card, video digest cards with `[MM:SS]` links, Read Aloud, JSON Export/Import.
 - **Phase 2.5 — Post-MVP Refinements: ✅ Done**
   - Reactive sidebar, topic search/starring, usage metrics, value pill and Support CTA. Details in §8.
-- **Phase 3 — Browser Extension Side Panel & Engine Wiring: 🚧 Partial**
-  - Manifest declares `sidePanel`; the dashboard still talks to the local Bun server over `/api/*`, so background messaging remains.
-  - Done so far: `ui/digest.html` (copied to `extension/digest.html`) rewrites `/api/*` to `http://localhost:3456` when `chrome.runtime` is present, so the unpacked extension runs against the local Bun server. Clicking the toolbar icon still opens a full tab (`chrome.tabs.create`).
-  - Remaining: switch icon click to `chrome.sidePanel.open()`, route API calls through the service worker (avoids CORS/origin quirks), add `http://localhost:3456/*` to `host_permissions`, bundle JS instead of shipping raw module HTML.
-  - Packaging (documented + verified): `zip -r yt-topic-radar-extension.zip .` from `extension/` for ZIP + "Load unpacked"; `chrome://extensions` → **Pack extension** for a `.crx` (keep the generated `.pem` for future updates). Chrome blocks arbitrary `.crx` installs, so the ZIP path is the primary distribution channel.
+- **Phase 3 — Browser Extension Side Panel & Engine Wiring: ✅ Done**
+  - **Goal:** deliver the Phase 2 dashboard as an installable MV3 extension (side panel beside YouTube + full-tab view) that drives the `lib/` engine via the local Bun server (`http://localhost:3456`).
+  - **Implemented:**
+    1. **MV3 CSP compliance (`ui/digest.html`, `ui/digest.js`, `ui/digest.css`):** Externalized the inline `<script type="module">` to `digest.js` and replaced `cdn.tailwindcss.com` + inline `<style>` with local `digest.css`.
+    2. **Host permissions & CORS (`extension/manifest.json`, `server.ts`):** Added `http://localhost:3456/*` to `host_permissions` and `"tabs"` to `permissions`; added `OPTIONS` preflight (`204`) and `Access-Control-Allow-*` headers + `/digest.js` and `/digest.css` static routes in `server.ts`.
+    3. **Side Panel activation & ~360px responsive layout (`extension/background.js`, `ui/digest.*`):** Switched `background.js` to `chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true })`; made `#topicsSidebar` a slide-over drawer (`#btnToggleSidebar`) below `640px` and `#videoSidePanel` a full-pane overlay below `900px`.
+    4. **Backup export & timestamp deep-linking (`ui/digest.js`):** Updated `#btnExportBackup` to use `${API_BASE}/api/backup/export`; added `#sidePanelYtWatchLink` fallback and active YouTube tab seeking via `chrome.tabs.query` in `openSidePanelPlayer`.
+  - Packaging (documented + verified): `bun run build:ext && (cd extension && zip -r ../yt-topic-radar-extension.zip .)` for ZIP + "Load unpacked"; `chrome://extensions` → **Pack extension** for a `.crx` (keep the generated `.pem` for future updates).
+  - **Definition of Done (DoD):**
+    - [x] Toolbar icon opens the **side panel** (`chrome.sidePanel`), and layout is usable at ~360px width as well as full-tab width.
+    - [x] Extension loads topics, digests and metrics from `http://localhost:3456` with zero MV3 CSP or CORS errors.
+    - [x] `Scan Topic Now` runs end-to-end from the extension and persists the resulting digest and metrics.
+    - [x] Clicking a `[MM:SS]` timestamp opens the embedded player at that exact second (or seeks the active YouTube tab).
+    - [x] Both Export `.json` (`API_BASE + "/api/backup/export"`) and Import `.json` work from inside the extension.
+    - [x] `bun run build:ext` + ZIP produces a package that loads unpacked on a clean profile.
+    - [x] CLI & local web paths (`bun run scan`, `bun run ui`) behave identically to before.
+    - [x] **Security (§3.1 resolved):** CORS headers restricted to `localhost` and `chrome-extension://` origins; arbitrary websites cannot read user data or POST to `/api/scan`.
+  - **Design decision — `seekOpenYouTubeTab` behaviour (§3.3):** `chrome.tabs.update(tabId, { url: "...&t=Ns" })` **navigates** (reloads) the open YouTube tab to the timestamped URL rather than seeking in-place. This is accepted for MVP because it requires only the `tabs` permission and no content script. In-place seek (via a content script `postMessage` to the YouTube player) is deferred to Phase 4+.
 - **Phase 4 — Pro Tier Gating + Background Automation: ⏳ Not started**
   - **All four Phase 4 features are paid-only**: background alarms, auto-updates, notifications, and unlimited topics (free tier capped at **5**).
   - Requires flipping `MONETIZATION_CONFIG` from `"free_byok"` to `"freemium"` and introducing an `isPro` entitlement. Details and DoD in §9.
