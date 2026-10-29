@@ -4,12 +4,30 @@ import {
   ttsSupportStatus,
 } from "./tts-scan-utils.js";
 
+const STANDALONE_ROUTE =
+  typeof globalThis.__RADAR_STANDALONE__ === "function"
+    ? globalThis.__RADAR_STANDALONE__
+    : null;
 const API_BASE =
-  typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL
-    ? "http://localhost:3456"
-    : "";
+  typeof __RADAR_STANDALONE_BUILD__ !== "undefined" &&
+  __RADAR_STANDALONE_BUILD__
+    ? ""
+    : typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL
+      ? "http://localhost:3456"
+      : "";
 const origFetch = window.fetch;
 window.fetch = function (input, init) {
+  if (STANDALONE_ROUTE) {
+    if (typeof input === "string" && input.startsWith("/api/")) {
+      return STANDALONE_ROUTE(input, init);
+    }
+    if (
+      input instanceof Request &&
+      input.url.startsWith(location.origin + "/api/")
+    ) {
+      return STANDALONE_ROUTE(input.url.replace(location.origin, ""), input);
+    }
+  }
   if (typeof input === "string" && input.startsWith("/api/")) {
     input = API_BASE + input;
   } else if (
@@ -64,6 +82,11 @@ function isPro() {
 }
 
 async function resetRssUnread() {
+  if (
+    typeof __RADAR_STANDALONE_BUILD__ !== "undefined" &&
+    __RADAR_STANDALONE_BUILD__
+  )
+    return;
   try {
     if (typeof chrome !== "undefined" && chrome.storage?.local) {
       await chrome.storage.local.set({ rssUnread: 0 });
@@ -351,11 +374,17 @@ function renderMetricsUI() {
   }
 
   el("telemetryToggle").checked = Boolean(state.sync?.telemetryOptIn);
+  const proEnabled = state.monetization?.proEnabled !== false;
   const proToggle = el("proToggle");
-  if (proToggle) proToggle.checked = isPro();
+  if (proToggle) {
+    proToggle.checked = isPro();
+    const proRow = proToggle.closest("label");
+    if (proRow) proRow.classList.toggle("hidden", !proEnabled);
+  }
   const upgradeLine = el("footerUpgradeLine");
   if (upgradeLine) {
     const atCap =
+      proEnabled &&
       !isPro() &&
       state.sync.topics.length >= (state.monetization?.freeTopicLimit || 5);
     upgradeLine.classList.toggle("hidden", !atCap);
@@ -550,6 +579,7 @@ function renderAll() {
 
 function canAddMoreTopics() {
   const cfg = state.monetization || {};
+  if (cfg.proEnabled === false) return true;
   if (!isPro() && state.sync.topics.length >= (cfg.freeTopicLimit || 5)) {
     showToast(
       "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts.",
@@ -967,7 +997,14 @@ el("proToggle")?.addEventListener("change", async (e) => {
     if (!res.ok) throw new Error(data.error || "Failed to update Pro status");
     setOfflineMode(false);
     try {
-      if (typeof chrome !== "undefined" && chrome.alarms) {
+      if (
+        !(
+          typeof __RADAR_STANDALONE_BUILD__ !== "undefined" &&
+          __RADAR_STANDALONE_BUILD__
+        ) &&
+        typeof chrome !== "undefined" &&
+        chrome.alarms
+      ) {
         if (nextIsPro) {
           chrome.alarms.create("rss-poll", { periodInMinutes: 30 });
         } else {
@@ -980,9 +1017,16 @@ el("proToggle")?.addEventListener("change", async (e) => {
           }
         }
       }
-      try {
-        await chrome.runtime?.sendMessage?.({ type: "proChanged", isPro: nextIsPro });
-      } catch {}
+      if (
+        !(
+          typeof __RADAR_STANDALONE_BUILD__ !== "undefined" &&
+          __RADAR_STANDALONE_BUILD__
+        )
+      ) {
+        try {
+          await chrome.runtime?.sendMessage?.({ type: "proChanged", isPro: nextIsPro });
+        } catch {}
+      }
     } catch {}
     await loadState();
     showToast(nextIsPro ? "Pro unlocked" : "Pro disabled");
@@ -1121,9 +1165,23 @@ el("btnScanTopic").addEventListener("click", async () => {
 });
 
 // 1-Click Export Backup
-el("btnExportBackup").addEventListener("click", () => {
-  window.location.href = `${API_BASE}/api/backup/export`;
-  showToast("Exported backup .json");
+el("btnExportBackup").addEventListener("click", async () => {
+  try {
+    const res = await fetch("/api/backup/export");
+    if (!res.ok) throw new Error("Export failed");
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `yt-topic-radar-backup-${new Date().toISOString().slice(0, 10)}.json`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Exported backup .json");
+  } catch (err) {
+    showToast(err?.message || "Export failed", true);
+  }
 });
 
 // 1-Click Import Backup

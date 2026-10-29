@@ -43,13 +43,18 @@ It prints the filtered candidates, transcript stats, per-video summaries and the
 ## Chrome / Brave extension
 
 ```bash
-bun run build:ext
-(cd extension && zip -r ../yt-topic-radar-extension.zip .)
+bun run build:ext        # standalone prod bundle (no server needed)
+bun run build:ext:dev    # dev shell — requires `bun run ui` on :3456
+bun run package:chrome   # build + dist/yt-topic-radar-v<version>.zip + verify
 ```
+
+`package:chrome` refuses localhost/dev artifacts, writes a reproducible zip (fixed mtimes, sorted entries), and runs `scripts/verify-package.ts` (permissions, DNR ruleset, no RSS/alarm code). Store copy and disclosure drafts live in `store/`.
 
 Then open `chrome://extensions`, enable Developer mode, **Load unpacked**, and pick `extension/`. For a `.crx`, use **Pack extension** on the same page and keep the generated `.pem` private for future updates.
 
-The extension is a thin shell over the local Bun server — it requires `bun run ui` running at `http://localhost:3456`. Pro RSS polling (every 30 min) also depends on that server being up.
+The **prod** build works with **no Bun server**: the dashboard's `/api/*` calls are served in-page by `ui/standalone-entry.ts` + `lib/engine.ts`, storage is `chrome.storage`/IndexedDB, and a static DNR ruleset rewrites the `Origin` header so YouTube's Innertube API accepts requests from the extension. Standalone v1 ships with Pro disabled (`__RADAR_PRO_ENABLED__=false`): unlimited topics, no Pro toggle, no RSS polling.
+
+The **dev** build (`build:ext:dev`) remains the thin shell over `bun run ui` at `http://localhost:3456`, including Phase 4 Pro RSS polling.
 
 ## Free vs Pro
 
@@ -59,7 +64,7 @@ The extension is a thin shell over the local Bun server — it requires `bun run
 | Scans | Manual `Scan Topic Now` | Manual + background RSS polling of pinned channels (30 min) |
 | New-video alerts | — | Chrome notifications (max 3 per channel per poll) + toolbar badge |
 
-Unlock Pro with the `Pro (I paid)` toggle in the Settings drawer (manual unlock in Phase 4; real payment/licence tracking is Phase 5).
+Unlock Pro with the `Pro (I paid)` toggle in the Settings drawer (manual unlock in Phase 4; real payment/licence tracking is Phase 5). This table applies to server/dev mode — the standalone prod build ships Pro off (unlimited topics, no RSS).
 
 ## Configuration
 

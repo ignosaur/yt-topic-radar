@@ -329,7 +329,10 @@ export async function exportBackupJson(): Promise<string> {
 /**
  * 1-Click Import Backup JSON (merges topics, topicMeta, pinned channels, digests, metrics, and seen IDs without duplicates).
  */
-export async function importBackupJson(rawJson: string): Promise<{
+export async function importBackupJson(
+  rawJson: string,
+  opts: { enforceTopicLimit?: boolean } = {}
+): Promise<{
   topicsCount: number;
   digestsCount: number;
 }> {
@@ -342,7 +345,8 @@ export async function importBackupJson(rawJson: string): Promise<{
   const allTopics = [
     ...new Set([...currentSync.topics, ...(parsed.sync.topics || [])]),
   ];
-  const { isPro } = await getEntitlements();
+  const isPro =
+    opts.enforceTopicLimit === false ? true : (await getEntitlements()).isPro;
   const topicLimit = isPro
     ? allTopics.length
     : Math.max(currentSync.topics.length, MONETIZATION_CONFIG.freeTopicLimit);

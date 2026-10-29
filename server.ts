@@ -279,7 +279,10 @@ const server = Bun.serve({
       try {
         const body = (await req.json()) as { topic: string; maxVideos?: number };
         const topic = (body.topic || "").trim();
-        const maxVideos = Math.min(5, Math.max(1, Number(body.maxVideos || 3)));
+        // `|| 3` after Number() collapses NaN (e.g. maxVideos:"abc") to the
+        // default; without it collectWithBackfill's attempt cap becomes NaN and
+        // the scan walks the whole ranked pool.
+        const maxVideos = Math.min(5, Math.max(1, Number(body.maxVideos || 3) || 3));
         if (!topic) {
           return json({ error: "Topic is required" }, 400);
         }
