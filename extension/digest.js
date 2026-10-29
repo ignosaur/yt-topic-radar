@@ -345,7 +345,9 @@ function renderMetricsUI() {
   el("headerMetricsText").textContent = `⏱️ ${timeStr} saved • ${m.videosSummarized || 0} vids (${m.slopVideosFiltered || 0} clickbait skipped)`;
 
   if (state.monetization?.supportUrl) {
-    el("supportLinkBtn").href = state.monetization.supportUrl;
+    const supportHref = state.monetization.supportUrl;
+    if (el("supportLinkBtn")) el("supportLinkBtn").href = supportHref;
+    if (el("supportLinkBtnMobile")) el("supportLinkBtnMobile").href = supportHref;
   }
 
   el("telemetryToggle").checked = Boolean(state.sync?.telemetryOptIn);

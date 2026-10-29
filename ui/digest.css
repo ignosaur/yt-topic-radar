@@ -246,6 +246,7 @@ summary::-webkit-details-marker {
 .bg-emerald-500\/20 { background-color: rgba(16, 185, 129, 0.2); }
 .bg-amber-500\/15 { background-color: rgba(245, 158, 11, 0.15); }
 .bg-amber-500\/20 { background-color: rgba(245, 158, 11, 0.2); }
+.bg-amber-500\/10 { background-color: rgba(245, 158, 11, 0.1); }
 .bg-indigo-500\/20 { background-color: rgba(99, 102, 241, 0.2); }
 
 .bg-gradient-to-br {
@@ -318,6 +319,7 @@ summary::-webkit-details-marker {
 .hover\:bg-red-500:hover { background-color: #ef4444; }
 .hover\:bg-red-500\/30:hover { background-color: rgba(239, 68, 68, 0.3); }
 .hover\:bg-amber-500\/25:hover { background-color: rgba(245, 158, 11, 0.25); }
+.hover\:bg-amber-500\/20:hover { background-color: rgba(245, 158, 11, 0.2); }
 .hover\:bg-indigo-500\/30:hover { background-color: rgba(99, 102, 241, 0.3); }
 
 .hover\:text-white:hover { color: #ffffff; }
@@ -388,7 +390,9 @@ details[open] .group-open\:rotate-180 {
     background-color: rgba(2, 6, 23, 0.7);
     backdrop-filter: blur(2px);
   }
-  main > header {
+  /* NB: the id selector must out-specify the .h-16 utility (class), otherwise
+     the header stays locked at 4rem and its wrapped children overflow. */
+  #digestHeader {
     height: auto;
     min-height: 3.5rem;
     padding: 0.5rem 0.75rem;

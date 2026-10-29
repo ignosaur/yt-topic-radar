@@ -103,19 +103,22 @@
       </details>
     </div>
 
-    <!-- Footer: Value Counter + Support Link + 1-Click Backup & Restore -->
+    <!-- Footer: Value Counter + Support Me + 1-Click Backup & Restore -->
     <div class="p-3 border-t border-slate-800 bg-slate-950/80 space-y-2.5">
-      <!-- Value Saved + Donate/Support Bar -->
+      <!-- Value Saved Bar -->
       <div class="flex items-center justify-between bg-slate-900/90 border border-slate-800 rounded-lg px-2.5 py-1.5">
         <div class="text-[11px] text-slate-300 truncate">
           <span class="text-emerald-400 font-semibold" id="footerTimeSaved">⏱️ 0m saved</span>
           <span class="text-slate-500"> • </span>
           <span id="footerVideosDistilled" class="text-slate-400">0 vids</span>
         </div>
-        <a id="supportLinkBtn" href="https://rzp.io/rzp/ypHoq1R" target="_blank" rel="noopener noreferrer" class="shrink-0 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-[11px] font-semibold px-2 py-0.5 rounded transition">
-          ☕ Support
-        </a>
       </div>
+
+      <!-- Primary Support CTA -->
+      <a id="supportLinkBtn" href="https://rzp.io/rzp/ypHoq1R" target="_blank" rel="noopener noreferrer" title="Support me — help keep Topic Digest free and independent" class="flex items-center justify-center gap-1.5 w-full bg-amber-500/20 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 text-xs font-semibold px-2.5 py-2 rounded-lg shadow transition">
+        <span aria-hidden="true">☕</span>
+        <span>Support me</span>
+      </a>
 
       <a id="footerUpgradeLine" href="https://rzp.io/rzp/ypHoq1R" target="_blank" rel="noopener noreferrer" class="hidden block text-center text-[11px] font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg px-2.5 py-1.5 transition">⭐ Free limit reached — upgrade for unlimited topics + RSS auto-updates & alerts</a>
 
@@ -136,7 +139,7 @@
   <!-- Main Content Area: Topic Synthesis & Video Digest Cards -->
   <main class="flex-1 flex flex-col h-full overflow-hidden">
     <!-- Top Header -->
-    <header class="h-16 border-b border-slate-800 bg-slate-900/50 px-6 flex items-center justify-between shrink-0">
+    <header id="digestHeader" class="h-16 border-b border-slate-800 bg-slate-900/50 px-6 flex items-center justify-between shrink-0">
       <div class="flex items-center gap-3 min-w-0">
         <button id="btnToggleSidebar" title="Toggle topics sidebar" class="sm-only-btn bg-slate-800 hover:bg-slate-700 text-slate-200 px-2 py-1.5 rounded-lg border border-slate-700 text-xs shrink-0">☰ Topics</button>
         <h2 id="activeTopicTitle" class="text-xl font-bold text-white truncate">Select a Topic</h2>
@@ -157,6 +160,12 @@
         </button>
       </div>
     </header>
+
+    <!-- Narrow / Extension Side-Panel Support CTA (sidebar is hidden below 640px) -->
+    <a id="supportLinkBtnMobile" href="https://rzp.io/rzp/ypHoq1R" target="_blank" rel="noopener noreferrer" title="Support me — help keep Topic Digest free and independent" class="sm-only-btn flex items-center justify-center gap-1.5 shrink-0 bg-amber-500/20 hover:bg-amber-500/25 text-amber-300 border-b border-amber-500/30 text-xs font-semibold px-3 py-2 transition">
+      <span aria-hidden="true">☕</span>
+      <span>Support me</span>
+    </a>
 
     <!-- Scrollable Digest Feed -->
     <div id="digestContainer" class="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl"></div>

@@ -13,7 +13,7 @@ TypeScript + Bun. One shared engine (`lib/`) runs in the local dashboard and the
 - **Video-type-aware digests** — `tutorial`, `news_analysis`, `podcast_interview`, `review_comparison`, each with chapter breakdowns and a watch/skim/skip verdict.
 - **Cross-video synthesis** — consensus, disagreements and what is new across the scanned videos.
 - **Scalable sidebar** — topic filter box, `All | Ready | ★ Starred` tabs, starred topics pinned on top, starter packs auto-collapse at 4+ topics.
-- **Time saved** — local counter shown in the header (`⏱️ 20m saved • 8 videos distilled`), plus a `☕ Support` link.
+- **Time saved** — local counter shown in the header (`⏱️ 20m saved • 8 videos distilled`), plus a prominent `☕ Support me` button.
 - **Read Aloud and 1-click Export/Import** of topics, pinned channels, digests, metrics and seen-video IDs.
 
 ## Quick start (dashboard)
