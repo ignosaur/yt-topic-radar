@@ -40,8 +40,8 @@ export interface BackupPayload {
 }
 
 export const MONETIZATION_CONFIG = {
-  mode: "free_byok" as "free_byok" | "freemium",
-  freeTopicLimit: 10,
+  mode: "freemium" as "free_byok" | "freemium",
+  freeTopicLimit: 5,
   supportUrl: "https://rzp.io/rzp/ypHoq1R",
   proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
 };
@@ -79,7 +79,11 @@ const isIndexedDBAvailable =
   typeof globalThis !== "undefined" && typeof indexedDB !== "undefined";
 
 // Local file fallback when running via `bun run` in CLI (in-memory cached + write-serialized to prevent check-then-write races)
-const CLI_STORE_PATH = ".local-radar-store.json";
+const CLI_STORE_PATH = process.env.RADAR_STORE_PATH || ".local-radar-store.json";
+
+export interface Entitlements {
+  isPro: boolean;
+}
 
 interface CliStoreData {
   sync: SyncState;
@@ -87,6 +91,7 @@ interface CliStoreData {
   digests: Record<string, TopicDigest>;
   seenVideoIds: string[];
   metrics?: UsageMetrics;
+  entitlements?: Entitlements;
 }
 
 let cliStoreCache: CliStoreData | null = null;
@@ -176,6 +181,18 @@ export async function saveApiKey(apiKey: string): Promise<void> {
   const store = await readCliStore();
   store.apiKey = apiKey.trim();
   await writeCliStore(store);
+}
+
+export async function getEntitlements(): Promise<Entitlements> {
+  const store = await readCliStore();
+  return { isPro: Boolean(store.entitlements?.isPro) };
+}
+
+export async function setEntitlements(entitlements: Entitlements): Promise<Entitlements> {
+  const store = await readCliStore();
+  store.entitlements = { isPro: Boolean(entitlements.isPro) };
+  await writeCliStore(store);
+  return store.entitlements;
 }
 
 export async function getDigests(): Promise<Record<string, TopicDigest>> {
@@ -322,22 +339,31 @@ export async function importBackupJson(rawJson: string): Promise<{
   }
 
   const currentSync = await getSyncState();
-  const mergedTopics = [
+  const allTopics = [
     ...new Set([...currentSync.topics, ...(parsed.sync.topics || [])]),
   ];
+  const { isPro } = await getEntitlements();
+  const topicLimit = isPro
+    ? allTopics.length
+    : Math.max(currentSync.topics.length, MONETIZATION_CONFIG.freeTopicLimit);
+  const mergedTopics = allTopics.slice(0, topicLimit);
+  const keptTopics = new Set(mergedTopics);
 
   const channelMap = new Map<string, PinnedChannel>();
   for (const ch of [
     ...currentSync.pinnedChannels,
     ...(parsed.sync.pinnedChannels || []),
   ]) {
-    if (ch?.channelId) channelMap.set(`${ch.topic}:${ch.channelId}`, ch);
+    if (ch?.channelId && keptTopics.has(ch.topic)) channelMap.set(`${ch.topic}:${ch.channelId}`, ch);
   }
 
-  const mergedTopicMeta: Record<string, TopicMeta> = {
+  const mergedTopicMeta: Record<string, TopicMeta> = {};
+  for (const [topic, meta] of Object.entries({
     ...(currentSync.topicMeta || {}),
     ...(parsed.sync.topicMeta || {}),
-  };
+  })) {
+    if (keptTopics.has(topic)) mergedTopicMeta[topic] = meta;
+  }
 
   const nextSync: SyncState = {
     topics: mergedTopics,

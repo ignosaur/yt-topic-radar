@@ -77,7 +77,7 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 
 ### C. End-to-End User Flow
 1. **Install & Open Extension:** Opens the **Topic Radar Dashboard** (full tab today; Chrome `sidePanel` in Phase 3).
-2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic). Free tier supports up to 5 topics once Phase 4 lands (currently 10 in `"free_byok"` mode).
+2. **30-Second Setup:** Paste Gemini API key + click 2–3 Starter Topic pills (or type a custom topic). Free tier supports up to 5 topics.
 3. **Scan Topic:** Click `[Scan Topic Now]` (Pro: or let background `chrome.alarms` poll pinned channels).
 4. **Read the Digest:**
    - **Top Card:** Cross-Video Topic Synthesis (*"Across 4 videos this week, here is the consensus and what's new..."*).
@@ -146,7 +146,7 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
     - [x] CLI & local web paths (`bun run scan`, `bun run ui`) behave identically to before.
     - [x] **Security (§3.1 resolved):** CORS headers restricted to `localhost` and `chrome-extension://` origins; arbitrary websites cannot read user data or POST to `/api/scan`.
   - **Design decision — `seekOpenYouTubeTab` behaviour (§3.3):** `chrome.tabs.update(tabId, { url: "...&t=Ns" })` **navigates** (reloads) the open YouTube tab to the timestamped URL rather than seeking in-place. This is accepted for MVP because it requires only the `tabs` permission and no content script. In-place seek (via a content script `postMessage` to the YouTube player) is deferred to Phase 4+.
-- **Phase 4 — Pro Tier Gating + Background Automation: ⏳ Not started**
+- **Phase 4 — Pro Tier Gating + Background Automation: ✅ Implemented, verification pending (2026-10-28, working tree)** — one manual DoD remains: OS notification on a real new video from a pinned channel (§9 M2).
   - **All four Phase 4 features are paid-only**: background alarms, auto-updates, notifications, and unlimited topics (free tier capped at **5**).
   - Requires flipping `MONETIZATION_CONFIG` from `"free_byok"` to `"freemium"` and introducing an `isPro` entitlement. Details and DoD in §9.
 
@@ -212,10 +212,10 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 - **Context:** Users currently get full BYOK summarization at $0 server cost to the developer, but there is no visible indicator of how much time the tool has saved them and no way for happy users to tip/support or unlock Pro features.
 - **Goal:** Surface a live **"⏱️ X.X hrs saved"** value badge paired with a **`☕ Support / Tip`** CTA, plus a single configuration object to enable a Freemium/Pro topic limit later without refactoring.
 - **Scope:**
-  - `lib/storage.ts`: Export `MONETIZATION_CONFIG` (`mode: "free_byok" | "freemium"`, `freeTopicLimit: 10`, `supportUrl: string`).
+  - `lib/storage.ts`: Export `MONETIZATION_CONFIG` (`mode: "free_byok" | "freemium"`, `freeTopicLimit: 5`, `supportUrl: string`).
   - `ui/digest.html`: Render the live `"⏱️ X.X hrs saved • Y videos distilled"` pill in the header/sidebar footer alongside a `☕ Support` button linked to `supportUrl`.
 - **Constraints:** Must not block or nag BYOK users in default `"free_byok"` mode; non-intrusive 1-line footer/header placement.
-- **Superseded by Phase 4 (§9):** the default `"free_byok"` mode and `freeTopicLimit: 10` are replaced by `"freemium"` with a 5-topic free cap once Phase 4 lands.
+- **Superseded by Phase 4 (§9):** the default `"free_byok"` mode is replaced by `"freemium"` once Phase 4 lands (free cap stays 5).
 - **Definition of Done (DoD):**
   - [x] Top header / sidebar footer displays live formatted time saved (e.g., `⏱️ 20m saved • 2 videos distilled`) calculated from `state.metrics` (with fallback calculation from existing cached digests so current data immediately shows non-zero value).
   - [x] Clicking `☕ Support` opens the configured donation/tip URL (Ko-fi / Buy Me a Coffee / Stripe Payment Link) in a new tab.
@@ -226,7 +226,7 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
 ## 9. Phase 4 — Pro Tier: Gating, Background Alarms, Auto-Updates & Notifications
 
 ### Overall Context, Goal, Scope & Constraints
-- **Context:** Phase 2.5 shipped `MONETIZATION_CONFIG` as a config hook only — the app runs in `"free_byok"` mode with `freeTopicLimit: 10` and a `canAddMoreTopics()` check that never fires. Phase 4 turns the four automation features into the paid tier.
+- **Context:** Phase 2.5 shipped `MONETIZATION_CONFIG` as a config hook only — the app runs in `"free_byok"` mode with `freeTopicLimit: 5` and a `canAddMoreTopics()` check that never fires. Phase 4 turns the four automation features into the paid tier.
 - **Decision:** **Background alarms, auto-updates, notifications and unlimited topics are Pro-only.** Free tier keeps manual scans and is capped at **5 topics**.
 - **Goal:** Establish an `isPro` entitlement boundary enforced on both UI and server, then build the paid automation on top of it.
 - **In-Scope:** `lib/storage.ts`, `server.ts`, `ui/digest.html`, `extension/manifest.json`, `extension/background.js`.
@@ -236,53 +236,79 @@ YouTube has massive amounts of content—some high-signal, much of it clickbait 
   - Local-first and backward compatible: existing `.local-radar-store.json`, `IndexedDB` and exported `.json` backups keep working. No entitlement data in backups.
   - No new dependency for licence checking in this phase — a local `isPro` flag is enough; swap in a real licence key later.
 
-### Task 1: Entitlements + Freemium Config
-- **Context:** `MONETIZATION_CONFIG.mode` is `"free_byok"`, so `canAddMoreTopics()` (`ui/digest.html`) short-circuits and no limit is enforced. `/api/state` exposes `monetization` but no entitlement.
-- **Scope:**
-  - `lib/storage.ts`: flip `mode` to `"freemium"`, set `freeTopicLimit: 5`; add `getEntitlements()` / `setEntitlements()` returning `{ isPro: boolean }` (default `false`), persisted in `chrome.storage.local` / the CLI store and **excluded** from `BackupPayload`.
-  - `server.ts`: return `entitlements` in `GET /api/state`.
-  - `ui/digest.html`: read `state.entitlements?.isPro` as the single source of truth for gating (not `mode` alone).
-- **DoD:**
-  - [ ] `/api/state` returns `monetization.mode === "freemium"`, `freeTopicLimit: 5` and `entitlements.isPro`.
-  - [ ] Entitlement survives reload and is absent from exported backup JSON.
+### Implementation Plan (KISS / YAGNI — saved 2026-10-28)
 
-### Task 2: Free Tier Cap — 5 Topics
-- **Context:** Topic creation happens in three places in `ui/digest.html`: the add-topic form submit handler, the starter-pack pills, and the AI sub-topic chips — all of which already call `canAddMoreTopics()`.
-- **Scope:**
-  - `ui/digest.html`: `canAddMoreTopics()` blocks when `!isPro && topics.length >= 5`; message reads *"Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts."* Show a persistent upgrade CTA in the sidebar footer at the cap.
-  - `server.ts`: reject `POST /api/sync` when a non-Pro request would grow `topics` beyond 5 (trims or 403) so the limit cannot be bypassed via direct API calls.
-- **DoD:**
-  - [ ] Adding a 6th topic as a free user is blocked in all three UI paths with the upgrade message.
-  - [ ] A direct `POST /api/sync` with 6 topics is rejected for a free user and accepted for Pro.
-  - [ ] Topics 1–5 behave exactly as before.
+**Core idea:** the Bun server is the only source of truth. The background worker asks the server (`GET /api/state`) instead of mirroring state into `chrome.storage.local`. One store branch, two small background storage keys (`rssSeen`, `rssUnread`), no new dependencies.
 
-### Task 3: Background Alarms (Pro only)
-- **Context:** `extension/manifest.json` already declares `alarms` but `extension/background.js` only calls `chrome.tabs.create` — no alarms are ever created.
-- **Scope:** `extension/background.js` creates the RSS alarm on install/startup **only when `isPro`** and clears it on downgrade. Poll pinned channels through the existing `GET /api/rss?channelId=` endpoint on the local Bun server.
-- **DoD:**
-  - [ ] Pro user gets a periodic alarm; free user has none registered (`chrome.alarms.getAll()` empty).
-  - [ ] Downgrading to free clears the alarm without requiring a browser restart.
+**Cut (YAGNI):** `chrome.storage`/IndexedDB entitlement branches (dead code — only the server runs `lib/storage.ts`); `isPro`+`pinnedChannels` mirror + `onChanged` sync wiring; separate `lastSeenByChannel`/notified-set/badge stores; poll-interval UI; per-topic badge; extension test harness (manual checklist instead); auto-scan on new video; content-script seek; new upgrade URL (reuse `proUpgradeUrl`).
 
-### Task 4: Auto-Updates + Notifications (Pro only)
-- **Context:** `seenVideoIds` already tracks summarised videos in `lib/storage.ts`, and `/api/rss` returns latest videos per pinned channel. Nothing compares them.
-- **Scope:**
-  - `extension/manifest.json`: add `"notifications"` to `permissions`.
-  - `extension/background.js`: on each alarm, diff RSS results against last-seen channel video IDs in `chrome.storage.local`; on new videos, `chrome.notifications.create()` with a click handler that opens the side panel/tab on the relevant topic. Update the badge count.
-- **DoD:**
-  - [ ] A newly published video on a pinned channel produces exactly one notification per video ID (no repeats across alarm runs).
-  - [ ] Clicking the notification opens the digest focused on that topic.
-  - [ ] No polling, diffing or notification code runs for free users.
+**Agreed decisions:**
+- Alarm interval: `POLL_MINUTES = 30`, single `rss-poll` alarm, sequential per-channel polling.
+- `GET /api/rss` for free: `403 { error: "upgrade_required" }` (checked before any fetch).
+- Notification click: full tab `digest.html?topic=<enc>` primary; `chrome.sidePanel.open({ windowId })` best-effort `.catch(() => {})`.
+- Badge: total new (`""` / `N` / `"9+"`), cleared on digest open, scan, or notification click.
+- Over-limit users: grandfathered — server rejects only **growth** beyond `max(current, 5)`; delete/star/pin/scan always allowed.
+- Backup import: free users clamped to `max(current topics, 5)` topics (never truncates existing topics); Pro unlimited. Pins/meta filtered to kept topics; digests retained.
+- First poll per channel: seed silently (record all current RSS IDs, notify nothing). Same on pin-added and re-upgrade.
+- Payments/identity: manual `Unlock Pro (I paid)` toggle only; real tracking is Phase 5.
 
-### Task 5: Documentation & Distribution
-- **Scope:** README monetization table and Phase 4 status; note that the extension requires `bun run ui` running locally (Phase 3 debt).
+#### M0a — Test isolation (do first, one line)
+- `lib/storage.ts:82`: `const CLI_STORE_PATH = process.env.RADAR_STORE_PATH || ".local-radar-store.json";`
+- Tests spawn `PORT=3459 RADAR_STORE_PATH=/tmp/<tmp>.json bun run server.ts` from repo root (temp cwd does not work — `server.ts` serves `ui/*` cwd-relative). Extension still hard-codes `localhost:3456`, so this isolates API/UI tests only.
+- **DoD:** contract tests never touch the real `.local-radar-store.json` (hash unchanged before/after).
+
+#### M1 — Entitlement + 5-topic cap (one slice)
+- **Files:** `lib/storage.ts`, `server.ts`, `ui/digest.js`, `ui/digest.html` → `bun run build:ext`.
+- `lib/storage.ts`: flip `mode` to `"freemium"`; add `getEntitlements()`/`setEntitlements()` reading/writing a top-level `entitlements: { isPro: boolean }` key in the CLI store only (getter `store.entitlements?.isPro ?? false`; mutate the cached object, never spread-replace; never added to `BackupPayload`). In `importBackupJson`, clamp merged topics to `max(current topics, 5)` when `!isPro` and filter `pinnedChannels`/`topicMeta` to kept topics (digests retained).
+- `server.ts`: `GET /api/state` adds `entitlements`; new `POST /api/entitlements { isPro }` (400 unless `isPro` is a boolean); `POST /api/sync` returns `403` only when `!isPro` and the request grows topics beyond `max(current, 5)`; `GET /api/rss` returns `403` for free before the missing-`channelId` branch and before fetching.
+- `ui/digest.js`: `canAddMoreTopics()` blocks when `!isPro && topics.length >= 5` with *"Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts."*; `saveSync` checks `res.ok` and on failure `await loadState()` + error toast (server state wins, no rollback code), and every `loadState` repairs a dangling `activeTopic` to a subscribed topic; Settings checkbox `Pro (I paid)` → `POST /api/entitlements`, check `res.ok`, then `await loadState()` and re-render checkbox from `state.entitlements?.isPro` (like `telemetryToggle`); in extension context, on successful Pro toggle call `chrome.alarms.create("rss-poll", { periodInMinutes: 30 })` and on downgrade `chrome.alarms.clear("rss-poll")` — free installs create no alarm; footer upgrade line only when free and at cap. UI reads `state.entitlements?.isPro` as single source of truth.
 - **DoD:**
-  - [ ] README configuration table reflects `freemium` + 5-topic cap and lists the four Pro features.
-  - [ ] Packaging steps (ZIP / `.crx`) documented and reproducible.
+  - [x] `/api/state` returns `monetization.mode === "freemium"`, `freeTopicLimit: 5`, `entitlements.isPro`; survives reload; absent from backup export.
+  - [x] 6th topic blocked in all 3 UI paths (add form `:873`, starter pills `:470`, subtopic chips `:668`) and via direct `POST /api/sync` (403 free / 200 Pro); topics 1–5 unchanged; over-limit free user can still delete/star/pin.
+
+#### M2 — Background poll + notifications (Pro only)
+- **Files:** `extension/background.js`, `extension/manifest.json`, `extension/icon.png` (copy of `assets/logo-256.png`), `ui/digest.js` (`?topic=` + badge clear).
+- `manifest.json`: add `"notifications"` to `permissions`, add `icons`/`default_icon` pointing at `icon.png`.
+- `background.js` (~90 lines, no imports; all listeners registered synchronously at top level; server URL hard-coded — the `window.fetch` shim cannot run in a service worker):
+  - `ensureAlarm()`: backstop on install/startup only — fetch `/api/state`, create `rss-poll` (`periodInMinutes: 30`) only if Pro and missing (never reset the countdown). Primary lifecycle is the digest page (M1): it creates/clears the alarm on toggle, so upgrades take effect without a browser restart. Free installs create no alarm.
+  - On alarm: `fetch /api/state`; on network failure **or** non-OK/unparseable response, abort and touch nothing (never treat errors as `!isPro`). If `!isPro`: clear alarm + badge and return. For each pinned channel sequentially with per-channel `try/catch`: `GET /api/rss?channelId=`; skip on non-200 (only `200` with a non-empty list advances state; an empty list never seeds).
+  - Storage keys `rssSeen: { [channelId]: string[] }` (last 50 IDs) and `rssUnread: number`. First sight of a channel (with videos): store all current IDs, notify nothing. Otherwise, mark **all** new IDs seen, notify only the first 3 (rest silently seen — no stale queue); write each ID into the set **before** `chrome.notifications.create("rss|<enc topic>|<videoId>", …)` so a service-worker kill can never duplicate. Same channel under two topics: first topic wins. Persist per channel as you go; badge from `rssUnread` (`""` / `N` / `"9+"`).
+  - `chrome.storage.onChanged`: only when `area === "local"` and `rssUnread` becomes `0`, clear the badge; write nothing in response.
+  - `notifications.onClicked`: parse topic from the notification ID, clear notification, set `rssUnread = 0` (badge clears via the listener), `chrome.tabs.create({ url: chrome.runtime.getURL("digest.html?topic=" + enc) })`, then best-effort `sidePanel.open({ windowId: tab.windowId }).catch(() => {})`.
+- `ui/digest.js`: apply `?topic=` **once** on initial load (then strip it with `history.replaceState`); later loads only repair a dangling `activeTopic`. On initial load and after a successful scan, in extension context, reset `rssUnread = 0` in `chrome.storage.local` guarded by `chrome.storage?.local` inside `try/catch` (plain `chrome` exists on ordinary web pages).
+- **DoD (manual Chrome checklist — no automated harness in this phase):**
+  - [x] Free: `chrome.alarms.getAll()` empty; Pro: exactly one periodic `rss-poll` alarm. (Verified in headless Chromium MV3 smoke, 2026-10-28: free `[]`, Pro at startup `["rss-poll:30"]`.)
+  - [ ] New video on a pinned channel: exactly one notification across two alarm runs; badge shows total; click opens digest tab on that topic; badge clears on digest open. (Partially verified: `?topic=` opens the correct topic and is stripped from the URL; write-before-notify dedup is code-reviewed. OS-level notification requires a real pinned channel publishing — manual check pending.)
+  - [x] Downgrade clears the alarm without browser restart; server stopped → no errors, no state advance, resumes next cycle. (Alarm clear wired on toggle + free poll; server-down path touches nothing by construction and contract tests keep the real store hash unchanged.)
+
+#### M3 — Tests, docs, packaging
+- Single `bun test` contract file against the M0a-isolated server: `/api/state` shape, cap 403-free/200-Pro, growth-only rule, RSS 403-free, backup excludes entitlements, import clamps free to `max(current, 5)`.
+- README: monetization table → `freemium` + 5-topic cap + four Pro features; Phase 4 status; re-affirm extension requires `bun run ui`. Regenerate ZIP from the committed tree (current ZIP is stale) and verify `bun run build:ext` diff is clean.
+- **Before M1:** checkpoint-commit the working tree and copy `.local-radar-store.json` aside. Rollback = `git revert` + restore that copy; alarms/badge in the Chrome profile are cleared manually (in the checklist above).
+- **DoD:**
+  - [x] `bunx tsc --noEmit` clean; contract tests green; real store hash unchanged by tests. (Contract tests 6/6 green. `tsc` has only pre-existing errors in untouched files: `demo_*.spec.ts`, `lib/storage.ts:79 indexedDB`, `lib/youtube.ts sort_by` — no new errors from Phase 4 files.)
+  - [x] README reflects `freemium` + cap + Pro features; packaging (ZIP / `.crx`) reproducible.
+
+#### Implementation progress & evidence (2026-10-28)
+- **Status: implemented.** M0a, M1, M2, M3 landed in the working tree (uncommitted — checkpoint was a store backup at `/tmp/yt-topic-radar-store-backup-2026-10-28.json`, SHA-256 `04052838…`, not a git commit).
+- **Decisions taken during implementation:** downgrade also clears `rssSeen` (both in `background.js` free-poll and the digest toggle) so re-upgrade re-seeds silently, per the "seed on re-upgrade" rule; badge counts only *notified* videos (≤3/channel/poll), the rest are silently seen.
+- **Evidence:**
+  - `bun test tests/phase4-contract.test.ts` — 6/6 pass (state/freemium, 5-ok/6-403, RSS 403, boolean validation, backup excludes entitlements, grandfather re-save/growth/import-clamp). Real store SHA-256 unchanged before/after.
+  - Playwright `tests/responsive-layout.spec.ts` — 7/7 pass against an isolated store.
+  - Headless Chromium MV3 smoke (persistent context, real extension): service worker loads; free `chrome.alarms.getAll()` = `[]`; Pro at startup = `["rss-poll:30"]`; digest renders with 0 page errors; `digest.html?topic=Local LLMs` opens that topic and strips the param; `rssUnread` storage round-trips.
+  - `bun test` on the whole repo also picks up the pre-existing Playwright `demo_*.spec.ts` files and fails on them (Playwright `test.describe` under Bun) — unrelated to Phase 4; run the contract file directly.
+  - Extension ZIP regenerated from the working tree (6 files including `icon.png`).
+- **Remaining manual check:** OS notification on a real new video from a pinned channel (DoD above).
+- **Out-of-plan scope in the same working tree (pre-existing, not Phase 4):** the server-offline guard in `ui/digest.js`/`ui/digest.css` (~100 lines: offline banner, button disabling, `isServerUnreachable` classifying any `TypeError` as offline). It predates this implementation, is exercised by no test, and should be committed/split separately from the Phase 4 milestone commits so it can be reverted independently.
+- **Review follow-ups (2026-10-28):** status wording is "implemented, verification pending" until the notification check passes; the MV3 smoke is committed as `tests/extension-smoke.mjs` (run manually against an isolated `:3456` server) so M2 evidence is reproducible; `bun run test:contract` runs the contract file directly.
 
 ### Recommended implementation order
-1. Task 1 (entitlements + config) → 2 (topic cap) — establishes the paid boundary first.
-2. Task 3 (alarms) → 4 (auto-updates + notifications) — build on the gate, not before it.
-3. Task 5 last.
+1. M0a (one line) → M1 (paid boundary) → M2 (automation on the gate) → M3 (tests/docs/packaging).
+2. Every `ui/` edit ships with `bun run build:ext` in the same commit — never hand-edit `extension/digest.*`.
+
+### Phase 5 (deferred) — Real Payments + Identity
+- Phase 4 ships manual unlock only; it cannot know who paid.
+- Phase 5: separate Pro payment link (do not reuse tip link) + webhook → licence key (UUID/JWT with email) → paste-to-unlock in Settings → server-side signature verify → persist `{ isPro, email, keyHash }` outside backups, plus revoke/refund handling. Provider choice (ExtensionPay vs Stripe/Razorpay key) to be decided there.
 
 ### Demo asset (not shipped)
 A 35s silent walkthrough (`YT-Topic-Radar-Personal-Finance-Demo-With-Results.mp4`) was produced with Playwright recording + `ffmpeg` captions: add "Personal Finance" → Top 2 → scan → scroll results and synthesis. Recording scripts (`demo_*.spec.ts`), `demo-videos*/` and the extension ZIP are local artifacts, not part of the product build.

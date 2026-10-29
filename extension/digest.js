@@ -37,10 +37,11 @@ let state = {
     backupsExported: 0,
   },
   monetization: {
-    mode: "free_byok",
-    freeTopicLimit: 10,
+    mode: "freemium",
+    freeTopicLimit: 5,
     supportUrl: "https://rzp.io/rzp/ypHoq1R",
   },
+  entitlements: { isPro: false },
   starterTopics: {},
   hasApiKey: false,
   maskedKey: "",
@@ -50,6 +51,19 @@ let isScanning = false;
 let topicFilterQuery = "";
 let topicFilterTab = "all"; // "all" | "ready" | "starred"
 let starterAutoCollapsedOnce = false;
+let initialLoadDone = false;
+
+function isPro() {
+  return Boolean(state.entitlements?.isPro);
+}
+
+async function resetRssUnread() {
+  try {
+    if (typeof chrome !== "undefined" && chrome.storage?.local) {
+      await chrome.storage.local.set({ rssUnread: 0 });
+    }
+  } catch {}
+}
 
 const el = (id) => document.getElementById(id);
 const esc = (s) =>
@@ -85,6 +99,106 @@ function showToast(msg, isError = false) {
   t.className = `text-xs px-1 pt-0.5 truncate ${isError ? "text-rose-400" : "text-emerald-400"}`;
   t.classList.remove("hidden");
   setTimeout(() => t.classList.add("hidden"), 5000);
+}
+
+// --- Dev-mode server-offline guard ---
+// The extension UI is a thin shell over the local Bun server (http://localhost:3456).
+// When the server is down, fetch() rejects with a TypeError (Failed to fetch /
+// connection refused). Without a guard this fails silently (blank starter pack,
+// no key, dead buttons). Track offline state, show a persistent dismissible
+// banner + toast, and disable mutating buttons until the server is back.
+let isServerOffline = false;
+let serverBannerDismissed = false;
+
+const SERVER_OFFLINE_MSG =
+  "Radar server not running \u2014 run `bun run ui` on :3456, then reopen the panel.";
+
+function isServerUnreachable(err) {
+  if (!err) return false;
+  if (err instanceof TypeError) return true;
+  const msg = String((err && err.message) || err);
+  return (
+    msg.includes("Failed to fetch") ||
+    msg.includes("fetch failed") ||
+    msg.includes("Load failed") ||
+    msg.includes("NetworkError") ||
+    msg.includes("Network request failed") ||
+    msg.includes("ECONNREFUSED") ||
+    msg.includes("connection refused")
+  );
+}
+
+function serverUnreachableToast(action) {
+  showToast(
+    `Server unreachable during ${action} \u2014 run \`bun run ui\` on :3456, then reopen the panel.`,
+    true
+  );
+}
+
+function setOfflineMode(offline) {
+  isServerOffline = offline;
+  if (!offline) serverBannerDismissed = false;
+
+  const scanBtn = el("btnScanTopic");
+  const saveKeyBtn = el("btnSaveKey");
+  const addTopicBtn = el("addTopicForm")?.querySelector(
+    'button[type="submit"]'
+  );
+  for (const btn of [scanBtn, saveKeyBtn, addTopicBtn]) {
+    if (!btn) continue;
+    if (offline) {
+      if (btn.getAttribute("title") == null) btn.dataset.origTitle = "";
+      else if (btn.dataset.origTitle === undefined)
+        btn.dataset.origTitle = btn.getAttribute("title") || "";
+      btn.disabled = true;
+      btn.title = SERVER_OFFLINE_MSG;
+    } else {
+      btn.disabled = false;
+      if (btn.dataset.origTitle !== undefined) {
+        if (btn.dataset.origTitle) btn.title = btn.dataset.origTitle;
+        else btn.removeAttribute("title");
+        delete btn.dataset.origTitle;
+      } else {
+        btn.removeAttribute("title");
+      }
+    }
+  }
+
+  ensureOfflineBanner();
+}
+
+function ensureOfflineBanner() {
+  const container = el("digestContainer");
+  if (!container) return;
+  const existing = document.getElementById("serverOfflineBanner");
+  if (!isServerOffline || serverBannerDismissed) {
+    if (existing) existing.remove();
+    return;
+  }
+  if (existing && existing.parentNode === container) {
+    container.prepend(existing);
+    return;
+  }
+  if (existing) existing.remove();
+  const banner = document.createElement("div");
+  banner.id = "serverOfflineBanner";
+  banner.className = "server-offline-banner";
+  banner.setAttribute("role", "alert");
+  const label = document.createElement("span");
+  label.textContent = `⚠️ ${SERVER_OFFLINE_MSG}`;
+  const dismiss = document.createElement("button");
+  dismiss.id = "btnDismissOfflineBanner";
+  dismiss.className = "server-offline-dismiss";
+  dismiss.title = "Dismiss";
+  dismiss.setAttribute("aria-label", "Dismiss offline warning");
+  dismiss.textContent = "✕";
+  dismiss.addEventListener("click", () => {
+    serverBannerDismissed = true;
+    ensureOfflineBanner();
+  });
+  banner.appendChild(label);
+  banner.appendChild(dismiss);
+  container.prepend(banner);
 }
 
 function formatDurationSaved(seconds) {
@@ -146,26 +260,70 @@ async function recordMetricEvent(event) {
 }
 
 async function loadState() {
-  const res = await fetch("/api/state");
-  state = await res.json();
-  state.sync.topicMeta = state.sync.topicMeta || {};
-  if (!activeTopic && state.sync.topics.length > 0) {
-    activeTopic = state.sync.topics[0];
+  try {
+    const res = await fetch("/api/state");
+    if (!res.ok) throw new Error(`Failed to load state (${res.status})`);
+    state = await res.json();
+    state.sync.topicMeta = state.sync.topicMeta || {};
+    if (!initialLoadDone) {
+      const paramTopic = new URLSearchParams(location.search).get("topic");
+      if (paramTopic && state.sync.topics.includes(paramTopic)) {
+        activeTopic = paramTopic;
+      }
+      if (paramTopic) {
+        history.replaceState(null, "", location.pathname);
+      }
+      initialLoadDone = true;
+      resetRssUnread();
+    }
+    if (!state.sync.topics.includes(activeTopic)) {
+      activeTopic = state.sync.topics[0] || "";
+    }
+    if (!starterAutoCollapsedOnce && state.sync.topics.length >= 4) {
+      el("starterPacksDetails").removeAttribute("open");
+      starterAutoCollapsedOnce = true;
+    }
+    setOfflineMode(false);
+    renderAll();
+  } catch (err) {
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      renderAll();
+      showToast(SERVER_OFFLINE_MSG, true);
+      return;
+    }
+    showToast(err?.message || "Failed to load state", true);
   }
-  if (!starterAutoCollapsedOnce && state.sync.topics.length >= 4) {
-    el("starterPacksDetails").removeAttribute("open");
-    starterAutoCollapsedOnce = true;
-  }
-  renderAll();
 }
 
 async function saveSync(nextSync) {
   state.sync = nextSync;
-  await fetch("/api/sync", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(nextSync),
-  });
+  try {
+    const res = await fetch("/api/sync", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(nextSync),
+    });
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}));
+      await loadState();
+      showToast(
+        data.error === "upgrade_required"
+          ? "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts."
+          : data.error || "Save failed",
+        true
+      );
+      return;
+    }
+    setOfflineMode(false);
+  } catch (err) {
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("save");
+    } else {
+      showToast(err?.message || "Save failed", true);
+    }
+  }
   if (!starterAutoCollapsedOnce && state.sync.topics.length >= 4) {
     el("starterPacksDetails").removeAttribute("open");
     starterAutoCollapsedOnce = true;
@@ -185,6 +343,18 @@ function renderMetricsUI() {
   }
 
   el("telemetryToggle").checked = Boolean(state.sync?.telemetryOptIn);
+  const proToggle = el("proToggle");
+  if (proToggle) proToggle.checked = isPro();
+  const upgradeLine = el("footerUpgradeLine");
+  if (upgradeLine) {
+    const atCap =
+      !isPro() &&
+      state.sync.topics.length >= (state.monetization?.freeTopicLimit || 5);
+    upgradeLine.classList.toggle("hidden", !atCap);
+    if (state.monetization?.proUpgradeUrl) {
+      upgradeLine.href = state.monetization.proUpgradeUrl;
+    }
+  }
   el("settingsMetricsGrid").innerHTML = `
     <div class="bg-slate-900 p-1.5 rounded border border-slate-800">⏱️ Saved: <b class="text-emerald-400">${timeStr}</b></div>
     <div class="bg-slate-900 p-1.5 rounded border border-slate-800">🎬 Distilled: <b class="text-slate-200">${m.videosSummarized || 0}</b></div>
@@ -366,16 +536,14 @@ function renderSidebar() {
 function renderAll() {
   renderSidebar();
   renderMainDigest();
+  ensureOfflineBanner();
 }
 
 function canAddMoreTopics() {
   const cfg = state.monetization || {};
-  if (
-    cfg.mode === "freemium" &&
-    state.sync.topics.length >= (cfg.freeTopicLimit || 10)
-  ) {
+  if (!isPro() && state.sync.topics.length >= (cfg.freeTopicLimit || 5)) {
     showToast(
-      `Free tier limit (${cfg.freeTopicLimit} topics) reached — click ☕ Support to unlock Pro!`,
+      "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts.",
       true
     );
     return false;
@@ -400,6 +568,7 @@ function renderMainDigest() {
         </p>
       </div>
     `;
+    ensureOfflineBanner();
     return;
   }
 
@@ -414,6 +583,7 @@ function renderMainDigest() {
         </p>
       </div>
     `;
+    ensureOfflineBanner();
     return;
   }
 
@@ -696,6 +866,40 @@ el("telemetryToggle").addEventListener("change", (e) => {
   );
 });
 
+el("proToggle")?.addEventListener("change", async (e) => {
+  const nextIsPro = Boolean(e.target.checked);
+  try {
+    const res = await fetch("/api/entitlements", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ isPro: nextIsPro }),
+    });
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data.error || "Failed to update Pro status");
+    setOfflineMode(false);
+    try {
+      if (typeof chrome !== "undefined" && chrome.alarms) {
+        if (nextIsPro) {
+          chrome.alarms.create("rss-poll", { periodInMinutes: 30 });
+        } else {
+          await chrome.alarms.clear("rss-poll");
+          if (chrome.storage?.local) {
+            await chrome.storage.local.set({ rssSeen: {}, rssUnread: 0 });
+          }
+          if (chrome.action?.setBadgeText) {
+            chrome.action.setBadgeText({ text: "" });
+          }
+        }
+      }
+    } catch {}
+    await loadState();
+    showToast(nextIsPro ? "Pro unlocked" : "Pro disabled");
+  } catch (err) {
+    await loadState();
+    showToast(err?.message || "Failed to update Pro status", true);
+  }
+});
+
 el("topicFilterInput").addEventListener("input", (e) => {
   topicFilterQuery = e.target.value || "";
   renderSidebar();
@@ -711,13 +915,28 @@ el("topicFilterTabs")
   });
 
 el("btnSaveKey").addEventListener("click", async () => {
+  if (isServerOffline) {
+    serverUnreachableToast("save key");
+    return;
+  }
   const key = el("apiKeyInput").value.trim();
   if (!key) return;
-  await fetch("/api/key", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ apiKey: key }),
-  });
+  try {
+    await fetch("/api/key", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ apiKey: key }),
+    });
+    setOfflineMode(false);
+  } catch (err) {
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("save key");
+      return;
+    }
+    showToast(err?.message || "Save failed", true);
+    return;
+  }
   el("apiKeyInput").value = "";
   showToast("Saved Gemini API key");
   await loadState();
@@ -725,6 +944,10 @@ el("btnSaveKey").addEventListener("click", async () => {
 
 el("addTopicForm").addEventListener("submit", (e) => {
   e.preventDefault();
+  if (isServerOffline) {
+    serverUnreachableToast("add topic");
+    return;
+  }
   const val = el("newTopicInput").value.trim();
   if (!val) return;
   if (!state.sync.topics.includes(val) && !canAddMoreTopics()) return;
@@ -740,6 +963,10 @@ el("addTopicForm").addEventListener("submit", (e) => {
 
 // Task 1 Fix: Call renderAll() on scan completion so the sidebar green dot & video count badge update immediately!
 el("btnScanTopic").addEventListener("click", async () => {
+  if (isServerOffline) {
+    serverUnreachableToast("scan");
+    return;
+  }
   if (!activeTopic || isScanning) return;
   isScanning = true;
   el("btnScanTopic").disabled = true;
@@ -755,16 +982,23 @@ el("btnScanTopic").addEventListener("click", async () => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Scan failed");
+    setOfflineMode(false);
     state.digests[activeTopic] = data.digest;
     if (data.metrics) state.metrics = data.metrics;
+    resetRssUnread();
     showToast(
       `Summarized ${data.digest.videos.length} videos for "${activeTopic}"`
     );
   } catch (err) {
-    showToast(err.message || "Scan failed", true);
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("scan");
+    } else {
+      showToast(err.message || "Scan failed", true);
+    }
   } finally {
     isScanning = false;
-    el("btnScanTopic").disabled = false;
+    el("btnScanTopic").disabled = isServerOffline;
     el("scanBtnText").textContent = "Scan Topic Now";
     renderAll();
   }
@@ -788,12 +1022,18 @@ el("inputImportBackup").addEventListener("change", async (e) => {
     });
     const data = await res.json();
     if (!res.ok) throw new Error(data.error || "Import failed");
+    setOfflineMode(false);
     showToast(
       `Restored ${data.topicsCount} topics & ${data.digestsCount} digests`
     );
     await loadState();
   } catch (err) {
-    showToast(err.message || "Invalid backup file", true);
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("import");
+    } else {
+      showToast(err.message || "Invalid backup file", true);
+    }
   } finally {
     e.target.value = "";
   }

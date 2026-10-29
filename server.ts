@@ -17,6 +17,8 @@ import {
   saveTopicDigest,
   getMetrics,
   updateMetrics,
+  getEntitlements,
+  setEntitlements,
   exportBackupJson,
   importBackupJson,
   markVideoSeen,
@@ -83,16 +85,18 @@ const server = Bun.serve({
 
     // API: Get full state (topics, digests, starter topics, metrics, monetization, hasApiKey)
     if (url.pathname === "/api/state" && req.method === "GET") {
-      const [sync, digests, apiKey, metrics] = await Promise.all([
+      const [sync, digests, apiKey, metrics, entitlements] = await Promise.all([
         getSyncState(),
         getDigests(),
         getApiKey(),
         getMetrics(),
+        getEntitlements(),
       ]);
       return json({
         sync,
         digests,
         metrics,
+        entitlements,
         monetization: MONETIZATION_CONFIG,
         starterTopics: STARTER_TOPICS,
         hasApiKey: Boolean(apiKey),
@@ -119,8 +123,26 @@ const server = Bun.serve({
             ? body.telemetryOptIn
             : current.telemetryOptIn ?? false,
       };
+      const { isPro } = await getEntitlements();
+      if (
+        !isPro &&
+        next.topics.length >
+          Math.max(current.topics.length, MONETIZATION_CONFIG.freeTopicLimit)
+      ) {
+        return json({ error: "upgrade_required" }, 403);
+      }
       await saveSyncState(next);
       return json({ ok: true, sync: next });
+    }
+
+    // API: Set Pro entitlement (manual unlock, Phase 4; real licence in Phase 5)
+    if (url.pathname === "/api/entitlements" && req.method === "POST") {
+      const body = (await req.json().catch(() => null)) as any;
+      if (!body || typeof body.isPro !== "boolean") {
+        return json({ error: "isPro boolean required" }, 400);
+      }
+      const entitlements = await setEntitlements({ isPro: body.isPro });
+      return json({ ok: true, entitlements });
     }
 
     // API: Record usage metric event (timestampClick, ttsPlay)
@@ -203,6 +225,8 @@ const server = Bun.serve({
 
     // API: Poll Pinned Channel RSS
     if (url.pathname === "/api/rss" && req.method === "GET") {
+      const { isPro } = await getEntitlements();
+      if (!isPro) return json({ error: "upgrade_required" }, 403);
       const channelId = url.searchParams.get("channelId") || "";
       if (!channelId) return json({ videos: [] });
       const videos = await fetchChannelRssVideos(channelId);

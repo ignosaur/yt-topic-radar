@@ -38,15 +38,26 @@ bun run scan "AI Coding Agents" 3
 
 It prints the filtered candidates, transcript stats, per-video summaries and the cross-video synthesis.
 
-## Chrome / Brave extension (scaffold)
+## Chrome / Brave extension
 
 ```bash
 bun run build:ext
+(cd extension && zip -r ../yt-topic-radar-extension.zip .)
 ```
 
-Then open `chrome://extensions`, enable Developer mode, **Load unpacked**, and pick `extension/`.
+Then open `chrome://extensions`, enable Developer mode, **Load unpacked**, and pick `extension/`. For a `.crx`, use **Pack extension** on the same page and keep the generated `.pem` private for future updates.
 
-`extension/` is still a scaffold: the dashboard calls relative `/api/*` paths, which only resolve when the page is served by the Bun server (`bun run ui`), not from a `chrome-extension://` origin. Wiring the extension to the engine is Phase 3 (side panel + runtime messaging).
+The extension is a thin shell over the local Bun server — it requires `bun run ui` running at `http://localhost:3456`. Pro RSS polling (every 30 min) also depends on that server being up.
+
+## Free vs Pro
+
+| | Free | Pro |
+| :--- | :--- | :--- |
+| Topics | Up to 5 | Unlimited |
+| Scans | Manual `Scan Topic Now` | Manual + background RSS polling of pinned channels (30 min) |
+| New-video alerts | — | Chrome notifications (max 3 per channel per poll) + toolbar badge |
+
+Unlock Pro with the `Pro (I paid)` toggle in the Settings drawer (manual unlock in Phase 4; real payment/licence tracking is Phase 5).
 
 ## Configuration
 
@@ -55,7 +66,8 @@ Then open `chrome://extensions`, enable Developer mode, **Load unpacked**, and p
 | Gemini API key | `.env.local` or Settings drawer | — |
 | Server port | `PORT` env var | `3456` |
 | Gemini models | `MODEL_CANDIDATES` in `lib/summarizer.ts` | `gemini-3-flash-preview` → `gemini-3.8-flash` → `gemini-3.5-flash` → `gemini-flash-latest` |
-| Support URL / freemium limit | `MONETIZATION_CONFIG` in `lib/storage.ts` | `free_byok`, 10 topics, Razorpay |
+| Support URL / freemium limit | `MONETIZATION_CONFIG` in `lib/storage.ts` | `freemium`, 5 free topics, Razorpay |
+| Test store path | `RADAR_STORE_PATH` env var | `.local-radar-store.json` |
 
 Model names change; the fallback chain handles keys that do not have the newest model yet.
 
@@ -63,12 +75,13 @@ Model names change; the fallback chain handles keys that do not have the newest 
 
 | Route | Method | Purpose |
 | :--- | :--- | :--- |
-| `/api/state` | GET | Topics, digests, metrics, monetization config, key status |
-| `/api/sync` | POST | Update topics, pinned channels, `topicMeta`, `telemetryOptIn` |
+| `/api/state` | GET | Topics, digests, metrics, monetization, entitlements, key status |
+| `/api/sync` | POST | Update topics, pinned channels, `topicMeta`, `telemetryOptIn` (403 if free tier would grow beyond 5 topics) |
+| `/api/entitlements` | POST | Set `{ isPro }` (manual Pro unlock) |
 | `/api/key` | POST | Save the Gemini API key locally |
 | `/api/scan` | POST | Search → filter → transcript → summarize → synthesize |
 | `/api/metrics` | POST | Increment `timestampClick` / `ttsPlay` |
-| `/api/rss?channelId=` | GET | Latest videos for a pinned channel |
+| `/api/rss?channelId=` | GET | Latest videos for a pinned channel (Pro only, 403 otherwise) |
 | `/api/backup/export` | GET | Download backup JSON |
 | `/api/backup/import` | POST | Merge backup JSON (no duplicates) |
 
@@ -100,4 +113,4 @@ bun -e 'import { runSelfChecks } from "./index.ts"; await runSelfChecks(); conso
 
 ## Status
 
-Phase 1 (engine), Phase 2 (dashboard) and Phase 2.5 (sidebar UX, metrics, support CTA) are implemented. Next: Phase 3 extension wiring/side panel and Phase 4 RSS auto-polling. See `PLAN.md`.
+Phase 1 (engine), Phase 2 (dashboard), Phase 2.5 (sidebar UX, metrics, support CTA), Phase 3 (extension side panel) and Phase 4 (Pro gating, background RSS alarms, notifications) are implemented — Phase 4 has one manual verification pending (OS notification on a real new video). Next: Phase 5 real payments/licence tracking. See `PLAN.md`.
