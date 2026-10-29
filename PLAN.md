@@ -63,9 +63,10 @@ ExtensionPay/BYOK. The extension is a thin shell over the local Bun server
 
 ## 5. Phase 4 — Pro Tier: ✅ Done (signed off 2026-10-29)
 
-**Status: implemented and signed off** (commits `447a7f4`, `50adb93`; the
-click-path fix in `extension/background.js` plus this sign-off note are the
-only uncommitted changes). All DoDs green, including the manual notification
+**Status: implemented and signed off** (commits `447a7f4`, `50adb93`,
+`159bcb3` — the last carries the notification click-path fix in
+`extension/background.js` plus the sign-off note; working tree is clean).
+All DoDs green, including the manual notification
 flow (see checked box below).
 
 - **Decision:** background alarms, auto-updates, notifications, unlimited topics
@@ -101,9 +102,10 @@ flow (see checked box below).
   (403 free / 200 Pro); over-limit free users can still delete/star/pin.
 - [x] Free: no `rss-poll` alarm; Pro: exactly one. Downgrade clears it without
   restart. Server down → poll touches nothing, resumes next cycle.
-- [x] Contract tests green: `bun test tests/phase4-contract.test.ts` (6/6:
-  state/freemium, 5-ok/6-403, RSS 403, boolean validation, backup excludes
-  entitlements, grandfather re-save/growth/import-clamp) with real store hash
+- [x] Contract tests green: `bun test tests/phase4-contract.test.ts` (7/7:
+  state/freemium, 5-ok/6-403 + RSS 403, boolean validation, backup excludes
+  entitlements, downgrade shrink + import-clamp, grandfather
+  re-save/growth/no-truncate, scan-lock 409) with real store hash
   unchanged. Parser guard green: `bun test tests/youtube-parser-guard.test.ts`.
   (Note: `tsc --noEmit` is **not** a gate — it has pre-existing errors in
   untouched files: `demo_*.spec.ts`, `lib/storage.ts:79 indexedDB`,
