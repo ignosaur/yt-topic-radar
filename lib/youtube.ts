@@ -1,4 +1,29 @@
-import { Innertube, UniversalCache } from "youtubei.js";
+import { Innertube, UniversalCache, Parser } from "youtubei.js";
+
+/**
+ * YouTube ships new watch-page nodes (e.g. `Clarification` info panels on
+ * finance/news videos) faster than youtubei.js models them. The library
+ * JIT-generates the missing class and continues, so `class_not_found` and
+ * `class_changed` are benign drift — not failures. Everything else stays loud.
+ */
+export function isBenignParserWarning(errorType: unknown): boolean {
+  return errorType === "class_not_found" || errorType === "class_changed";
+}
+
+export function handleParserError(
+  err: { classname: string; error_type: string },
+  warn: (msg: string) => void = console.warn
+): void {
+  if (isBenignParserWarning(err?.error_type)) return;
+  warn(`[youtubei.js][${err?.error_type}]: ${err?.classname}`);
+}
+
+try {
+  Parser.setParserErrorHandler((err: any) => handleParserError(err));
+} catch {
+  // Older/newer youtubei.js without the hook — default handler applies.
+  console.warn("[youtubei.js] setParserErrorHandler unavailable; parser warnings unsuppressed.");
+}
 
 export interface VideoCandidate {
   videoId: string;

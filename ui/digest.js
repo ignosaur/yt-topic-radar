@@ -891,6 +891,9 @@ el("proToggle")?.addEventListener("change", async (e) => {
           }
         }
       }
+      try {
+        await chrome.runtime?.sendMessage?.({ type: "proChanged", isPro: nextIsPro });
+      } catch {}
     } catch {}
     await loadState();
     showToast(nextIsPro ? "Pro unlocked" : "Pro disabled");
@@ -986,8 +989,11 @@ el("btnScanTopic").addEventListener("click", async () => {
     state.digests[activeTopic] = data.digest;
     if (data.metrics) state.metrics = data.metrics;
     resetRssUnread();
+    const skipped = Array.isArray(data.skippedVideos) ? data.skippedVideos.length : 0;
     showToast(
-      `Summarized ${data.digest.videos.length} videos for "${activeTopic}"`
+      skipped > 0
+        ? `Summarized ${data.digest.videos.length} videos for "${activeTopic}" (${skipped} skipped)`
+        : `Summarized ${data.digest.videos.length} videos for "${activeTopic}"`
     );
   } catch (err) {
     if (isServerUnreachable(err)) {

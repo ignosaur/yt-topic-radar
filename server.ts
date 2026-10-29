@@ -2,6 +2,7 @@ import {
   searchAndFilterTopicWithStats,
   fetchTimestampedTranscript,
   fetchChannelRssVideos,
+  type VideoCandidate,
 } from "./lib/youtube";
 import {
   summarizeVideo,
@@ -185,19 +186,47 @@ const server = Bun.serve({
           );
         }
 
-        const { candidates, slopFilteredCount } = await searchAndFilterTopicWithStats(
-          topic,
-          maxVideos
-        );
+        let candidates: VideoCandidate[];
+        let slopFilteredCount: number;
+        try {
+          const filtered = await searchAndFilterTopicWithStats(topic, maxVideos);
+          candidates = filtered.candidates;
+          slopFilteredCount = filtered.slopFilteredCount;
+        } catch (err: any) {
+          console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`);
+          return json(
+            { error: "YouTube search temporarily failed for this topic. Please retry." },
+            502
+          );
+        }
         const summaries: VideoSummary[] = [];
         let secondsSavedDelta = 0;
+        const skippedVideos: string[] = [];
 
         for (const v of candidates) {
-          const t = await fetchTimestampedTranscript(v.videoId);
-          const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
-          summaries.push(summary);
-          secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
-          await markVideoSeen(v.videoId);
+          try {
+            const t = await fetchTimestampedTranscript(v.videoId);
+            const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
+            summaries.push(summary);
+            secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
+            await markVideoSeen(v.videoId);
+          } catch (err: any) {
+            // One poisoned video (blocked captions, Gemini error, parser
+            // drift) must not fail the whole topic — skip and continue.
+            console.warn(`[scan] skipped video ${v.videoId}: ${String(err?.message || err).slice(0, 200)}`);
+            skippedVideos.push(v.videoId);
+          }
+        }
+
+        if (summaries.length === 0) {
+          return json(
+            {
+              error:
+                "None of the candidate videos could be summarized. Please retry or try another topic.",
+              skippedVideos,
+            },
+            502
+          );
         }
 
         const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
@@ -217,7 +246,7 @@ const server = Bun.serve({
           secondsSaved: secondsSavedDelta,
         });
 
-        return json({ ok: true, digest, metrics });
+        return json({ ok: true, digest, metrics, skippedVideos });
       } catch (err: any) {
         return json({ error: String(err?.message || err) }, 500);
       }

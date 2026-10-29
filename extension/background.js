@@ -112,6 +112,22 @@ chrome.runtime.onStartup.addListener(() => {
   ensureAlarm();
 });
 
+chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
+  if (msg?.type === "proChanged") {
+    (async () => {
+      if (msg.isPro) {
+        await ensureAlarm();
+      } else {
+        await chrome.alarms.clear(ALARM_NAME);
+        await chrome.storage.local.set({ rssSeen: {}, rssUnread: 0 });
+        updateBadge(0);
+      }
+      sendResponse?.({ ok: true });
+    })();
+    return true;
+  }
+});
+
 chrome.action.onClicked.addListener(() => {
   if (!chrome.sidePanel?.setPanelBehavior) {
     chrome.tabs.create({ url: chrome.runtime.getURL("digest.html") });
