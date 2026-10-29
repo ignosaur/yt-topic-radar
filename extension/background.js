@@ -149,11 +149,24 @@ chrome.notifications.onClicked.addListener(async (notificationId) => {
   chrome.notifications.clear(notificationId);
   await chrome.storage.local.set({ rssUnread: 0 });
   updateBadge(0);
-  const url = chrome.runtime.getURL(
-    topic ? `digest.html?topic=${encodeURIComponent(topic)}` : "digest.html"
-  );
-  const tab = await chrome.tabs.create({ url });
+  const path = topic ? `digest.html?topic=${encodeURIComponent(topic)}` : "digest.html";
+  const tab = await chrome.tabs.create({
+    url: chrome.runtime.getURL(path),
+    active: true,
+  });
+  if (tab.windowId != null) {
+    // Bring the new tab's window forward — tabs.create alone may land it
+    // in a background window the user never sees.
+    chrome.windows.update(tab.windowId, { focused: true }).catch(() => {});
+  }
   if (chrome.sidePanel?.open && tab.windowId != null) {
+    // Point the side panel at the same topic; otherwise it shows the
+    // default digest while the tab shows the notified one.
+    if (chrome.sidePanel?.setOptions) {
+      await chrome.sidePanel
+        .setOptions({ path, enabled: true })
+        .catch(() => {});
+    }
     chrome.sidePanel.open({ windowId: tab.windowId }).catch(() => {});
   }
 });

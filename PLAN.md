@@ -61,10 +61,12 @@ ExtensionPay/BYOK. The extension is a thin shell over the local Bun server
    Panel, never inside the 30s-limited MV3 service worker; `background.js` handles
    toolbar actions + lightweight RSS alarm checks only.
 
-## 5. Phase 4 — Pro Tier: shipped, one manual check left
+## 5. Phase 4 — Pro Tier: ✅ Done (signed off 2026-10-29)
 
-**Status: implemented** (commits `447a7f4`, `50adb93`). All automated DoDs green;
-one manual DoD remains below.
+**Status: implemented and signed off** (commits `447a7f4`, `50adb93`; the
+click-path fix in `extension/background.js` plus this sign-off note are the
+only uncommitted changes). All DoDs green, including the manual notification
+flow (see checked box below).
 
 - **Decision:** background alarms, auto-updates, notifications, unlimited topics
   are **Pro-only**. Free keeps manual scans, capped at **5 topics**.
@@ -108,25 +110,26 @@ one manual DoD remains below.
   `lib/youtube.ts sort_by`.)
 - [x] README reflects freemium + cap + Pro features; ZIP regenerated from the
   committed tree; `bun run build:ext` diff clean.
-- [ ] **Manual (owner: maintainer, trigger: next real publish from a pinned
-  channel):** new video → exactly one notification across two alarm runs, badge
-  shows total, click opens the digest on that topic, badge clears on open.
-  Verified live except the real-publish trigger (2026-10-29, headed Chromium on
-  a real GNOME desktop against the real `background.js`: startup `rss-poll:30`
-  for Pro / `[]` for free; empty real feed never seeds; first sight seeds IDs
-  with 0 notifications; new video → `rssUnread` 1, badge `"1"`, single
-  notification object `rss|<topic>|<videoId>`; second run → 0 repeats;
-  downgrade clears alarm + state + badge without restart). The real D-Bus
-  `Notify` signal was captured at the OS: app `Google Chrome for Testing`,
-  summary = channel name, body = video title, icon = extension `icon.png`,
-  actions `default/Activate` (a duplicate bus echo came from a system watcher;
-  Chrome holds exactly one notification object). Feed bytes were stubbed at the
-  SW `fetch` boundary because this sandbox gets `404` for **all**
-  `youtube.com/feeds` channels — the diff/notify/badge/click-target code paths
-  exercised are identical. Residual for the real event: toast pixel rendering +
-  physical click activation only (no input automation exists here; Shell `Eval`
-  is restricted; `?topic=` routing + URL strip already verified live). If no
-  real publish event occurs, this stays open — it does not block Phase 5.
+- [x] **Manual notification flow (verified 2026-10-29, headed Chromium on a
+  real GNOME desktop against the real `background.js`):** new video → exactly
+  one notification across two alarm runs; badge shows total (`"1"`); click
+  path opens the digest on the notified topic; badge clears on open.
+  Evidence: startup `rss-poll:30` for Pro / `[]` for free; empty real feed
+  never seeds; first sight seeds IDs with 0 notifications; new video →
+  `rssUnread` 1, single notification object `rss|<topic>|<videoId>`; second
+  run → 0 repeats; downgrade clears alarm + state + badge without restart.
+  The real D-Bus `Notify` was captured at the OS (summary = channel name,
+  body = video title, icon = extension `icon.png`, actions
+  `default/Activate`). Maintainer sighting on Zorin OS 17 confirmed a real
+  toast; their click missing the right topic was traced to a background
+  window + default side panel and fixed (`active: true`, window focus,
+  `sidePanel.setOptions({ path })`) — the updated click path re-verified
+  live (real notification object → topic parsed → digest tab active and
+  showing the notified topic, panel path synced, window focused, unread 0,
+  badge cleared). Feed bytes were stubbed at the SW `fetch` boundary
+  because this sandbox gets `404` for **all** `youtube.com/feeds` channels;
+  the only unexecuted step anywhere is the OS-level finger-on-toast
+  dispatch (platform machinery). Phase 4 is signed off.
 
 ## 6. Phase 5 (deferred) — Real Payments + Identity
 

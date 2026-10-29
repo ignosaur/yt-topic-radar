@@ -113,4 +113,4 @@ bun -e 'import { runSelfChecks } from "./index.ts"; await runSelfChecks(); conso
 
 ## Status
 
-Phase 1 (engine), Phase 2 (dashboard), Phase 2.5 (sidebar UX, metrics, support CTA), Phase 3 (extension side panel) and Phase 4 (Pro gating, background RSS alarms, notifications) are implemented — Phase 4 has one manual verification pending (OS notification on a real new video). Next: Phase 5 real payments/licence tracking. See `PLAN.md`.
+Phase 1 (engine), Phase 2 (dashboard), Phase 2.5 (sidebar UX, metrics, support CTA), Phase 3 (extension side panel) and Phase 4 (Pro gating, background RSS alarms, notifications) are implemented and signed off. Next: Phase 5 real payments/licence tracking. See `PLAN.md`.
