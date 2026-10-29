@@ -16,6 +16,9 @@ build/
 .wxt/
 .codegraph/
 
+# Chrome's unpacked-extension metadata dir
+extension/_metadata/
+
 # Extension build artifact (always regenerate with bun run build:ext + zip)
 yt-topic-radar-extension.zip
 
