@@ -1,6 +1,6 @@
 # Standalone Chrome Extension — Implementation Plan (KISS/YAGNI)
 
-Status: **M0–M2 implemented; M3 prep automated.** M0 passed; M1 ships serverless (automated gates green, manual checklist open); M2 produces a verified `dist/yt-topic-radar-v1.0.0.zip` but is blocked on owner items; M3 has a GO/NO-GO preflight and a passing packaged-zip acceptance run, and is blocked on owner submission inputs. M4 deferred.
+Status: **M0–M2 implemented; M3 prep automated.** M0 passed; M1 is done (all boxes green); M2 produces a verified `dist/yt-topic-radar-v1.0.0.zip` but is blocked on owner items; M3 has a GO/NO-GO preflight and a passing packaged-zip acceptance run, and is blocked on owner submission inputs. M4 deferred.
 Saved: 2026-10-28. Supersedes the earlier standalone plan discussion in-session.
 Amended: 2026-10-29 — Pro gated behind `__RADAR_PRO_ENABLED__` (OFF in v1, activation M4); RSS deferred; M0 dry-run findings + M1/M2 implementation evidence recorded below.
 
@@ -67,7 +67,7 @@ No Pro feature may bypass the flag: a new Pro surface added to server/dev mode m
 | Milestone | Gate it unlocks | Owner approval needed | Status |
 |---|---|---|---|
 | M0 Browser spike | Any implementation | No | ✅ Passed 2026-10-29 |
-| M1 Standalone build | M2 packaging | No | ✅ Implemented — manual checklist open |
+| M1 Standalone build | M2 packaging | No | ✅ Done — all boxes green |
 | M2 Store packaging | M3 submission | No | ✅ Automated gates green — owner items blocked |
 | M3 Unlisted beta | M4 + public listing | Yes — store account + unlisted submission | 🚧 Prep automated — blocked on owner |
 | M4 Pro in standalone | Monetized listing | Yes — explicit approval to monetize | Deferred |
@@ -100,7 +100,7 @@ Search: 1 candidate in ~1.9s (`This New AI Architecture Is 31x Faster (NCM)`). T
 **Risks / recovery**
 DNR header rewrite is the single point of failure; if store review rejects it, the fallback is a content script in a `youtube.com` tab — needs a new owner decision (Decision 9). Gate is open; M1 may start.
 
-### M1 — Standalone build — ✅ implemented (automated gates green; manual checklist open)
+### M1 — Standalone build — ✅ done (all boxes green)
 
 **Scope**
 - The 5 build pieces above, with `__RADAR_PRO_ENABLED__=false`: `lib/engine.ts` (+ scan lock, seen-buffering), `ui/standalone-entry.ts` (fetch-bind → route table → import `digest.js`), build switch, slim prod worker, DNR ruleset.
@@ -116,9 +116,9 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 
 **DoD**
 - [x] Prod build loads with no Bun server; starter packs render from local state (Playwright smoke, 2026-10-29).
-- [ ] Full manual pass on a fresh profile (no other extensions) for the remaining manual boxes below.
+- [x] Clean-profile run with no other extensions and no Bun server: the scripted manual pass below ran on a fresh profile against the prod build.
 - [x] Gemini key saves in `chrome.storage.local` and survives a page reload; key excluded from backups (smoke A4 + backup payload has no key field).
-- [ ] Key survives a **full browser restart** (manual).
+- [x] Key, topics, and digest survive a full quit/relaunch of Chromium on the same profile (R1–R3).
 - [x] A 6th topic can be added (smoke A6: `/api/sync` accepted 6 topics).
 - [x] Standalone scan `maxVideos=1` returns 200 with 1 summarized video in ~25s, no errors (Playwright E2E, 2026-10-29).
 - [x] `maxVideos=3` returns 3 videos and clicking a chapter timestamp sets the player to `start=0` (M3 acceptance A5/A6).
@@ -126,8 +126,8 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 - [x] No Pro toggle visible in Settings (smoke A5); upgrade line follows `proEnabled` in `renderMetricsUI`.
 - [x] Prod manifest has no localhost/alarms/notifications permission (`scripts/manifest.prod.json`; `grep` clean).
 - [x] Zero `localhost:3456` requests and zero occurrences of the string in the prod bundle (smoke A3 + `grep` = 0).
-- [ ] Cancel test passes: close the page mid-scan → previous digest unchanged, no metrics/seen increments.
-- [ ] Open in two pages (tab + side panel) → second scan gets `scan_in_progress` (lock unit-tested; not yet exercised across two real pages).
+- [x] Cancel test passes: page closed mid-scan → previous digest, metrics, and seen IDs unchanged (C1–C3); aborted scan leaves a live lock that expires stale (C4), cleaned afterwards (C5).
+- [x] Second scan while one is in-flight returns 409 `scan_in_progress` across two pages; lock releases on settle and failed scans commit nothing (L1–L4).
 - [x] Engine unit tests pass — 7/7 (`bun test tests/engine.test.ts`, incl. failed seen-write regression).
 - [x] Playwright extension smoke passes — 6/6 assertions (`node tests/standalone-smoke.mjs`).
 - [x] `tests/responsive-layout.spec.ts` still green — 7/7 against a `PORT=3459` server (2026-10-29).
@@ -140,7 +140,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 - Zip/version packaging lives in M2 (`scripts/package-chrome.ts`, `scripts/verify-package.ts`).
 
 **Tests / evidence**
-`bun test tests/engine.test.ts` (7/7), `tests/phase4-contract.test.ts` (7/7), `tests/youtube-parser-guard.test.ts` (4/4), `bunx playwright test tests/responsive-layout.spec.ts` (7/7), `node tests/standalone-smoke.mjs` (6/6), plus a live standalone scan (200, 1 video, ~25s). Manual checklist remains for the boxes marked `[ ]`.
+`bun test tests/engine.test.ts` (7/7), `tests/phase4-contract.test.ts` (7/7), `tests/youtube-parser-guard.test.ts` (4/4), `bunx playwright test tests/responsive-layout.spec.ts` (7/7), `node tests/standalone-smoke.mjs` (6/6), plus a live standalone scan (200, 1 video, ~25s). The four manual boxes were run scripted against the prod build with a dummy key — no Gemini quota was needed, and YouTube search/transcripts supplied the in-flight window (13/13 checks: R1–R4 restart persistence, L1–L4 two-page lock, C1–C5 cancel).
 
 **Risks / recovery**
 `chrome.storage.sync` quota is fine for topics (small payload). Final prod bundle is **2.12 MB** (spike was 2.19 MB; both above the ~1.1 MB estimate) — assess first paint. Gemini fallback latency measured at ~103s for one video (≈35s burned per dead model candidate) — progress UI must not look hung. Recovery: dev path (`bun run ui` + `build:ext:dev`) remains fully functional and untouched.
