@@ -305,14 +305,18 @@ const server = Bun.serve({
             409
           );
         }
-        activeScan = { topic, since: Date.now() };
+        const scanStartedAt = Date.now();
+        activeScan = { topic, since: scanStartedAt };
         try {
           const result = await runScan(topic, maxVideos, apiKey);
           return json(result.body, result.status);
         } finally {
-          // Owner-only release: a 409'd or validation-rejected request never
-          // reaches here, so this cannot clear another request's lock.
-          if (activeScan?.topic === topic) activeScan = null;
+          // Owner-only release: compare identity, not just topic — a scan that
+          // was superseded after SCAN_STALE_MS must not clear its successor's
+          // lock for the same topic.
+          if (activeScan?.topic === topic && activeScan.since === scanStartedAt) {
+            activeScan = null;
+          }
         }
       } catch (err: any) {
         return json({ error: String(err?.message || err) }, 500);
