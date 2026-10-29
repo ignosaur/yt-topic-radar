@@ -7,7 +7,7 @@
     "scan": "bun run index.ts",
     "ui": "bun run server.ts",
     "test:contract": "bun test tests/phase4-contract.test.ts",
-    "build:ext": "cp ui/digest.html ui/digest.js ui/digest.css extension/"
+    "build:ext": "cp ui/digest.html ui/digest.js ui/digest.css ui/tts-scan-utils.js extension/"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

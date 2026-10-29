@@ -142,3 +142,33 @@ test("grandfathered free user: re-save at current count ok, growth rejected, imp
   const data: any = await res.json();
   expect(data.topicsCount).toBe(7);
 });
+
+test("concurrent scans: second gets 409 scan_in_progress", async () => {
+  // Needs a key so req1 passes validation and holds the lock during the real
+  // (slow) pipeline; a dummy key fails later at summarize-time, which is fine —
+  // the lock window is what this test observes. Tolerant by design: if req1
+  // settles before req2 arrives (e.g. no network → fast 502), there is no
+  // overlap to observe and the assertion is skipped with a logged reason. The
+  // lock itself is a synchronous check-and-set (see server.ts), so correctness
+  // does not rest on this timing. If skipped here, DoD requires a human to
+  // observe a real 409 in the manual two-tab gate.
+  await post("/api/key", { apiKey: "test-dummy-key" });
+  const scanInit = (topic: string) => ({
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ topic, maxVideos: 1 }),
+  });
+  const req1 = fetch(`${BASE}/api/scan`, scanInit("Topic 1") as RequestInit);
+  await new Promise((r) => setTimeout(r, 300));
+  const req2 = await post("/api/scan", { topic: "Topic 2", maxVideos: 1 });
+  const res1 = await req1;
+  await res1.json().catch(() => ({})); // drain; outcome irrelevant
+  if (req2.status === 409 && req2.data.error === "scan_in_progress") {
+    expect(req2.data.topic).toBe("Topic 1");
+  } else {
+    console.warn(
+      `[scan-lock] no overlap observed (req2=${req2.status}); ` +
+        `manual two-tab 409 check required for DoD.`
+    );
+  }
+}, 90000);

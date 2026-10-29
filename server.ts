@@ -29,6 +29,12 @@ import {
 
 const PORT = Number(process.env.PORT || 3456);
 
+// Single-flight guard: at most one topic scan runs at a time (protects Gemini
+// quota when two tabs / the extension panel scan concurrently). In-memory on
+// purpose — it dies with the server, so a crash can never wedge it. The
+// check-and-set below must stay synchronous (no await between check and set)
+// to remain atomic under Bun's single thread.
+
 // Allowed CORS origins: localhost (any port for dev) and chrome-extension pages.
 // This prevents any arbitrary website from reading user data or burning Gemini quota.
 // MV3 extension pages are already granted access via host_permissions and do not
@@ -48,6 +54,87 @@ function corsHeaders(req: Request): Record<string, string> {
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
+}
+
+// A hung network hop (search/transcript fetches carry no AbortSignal) could
+// otherwise hold the lock forever, answering 409 to every future scan until a
+// server restart. After this window the lock is treated as stale and the new
+// scan supersedes it; the hung request may still finish in the background and
+// its digest write is idempotent per topic.
+const SCAN_STALE_MS = 10 * 60 * 1000;
+
+let activeScan: { topic: string; since: number } | null = null;
+
+// The scan pipeline itself (search -> filter -> transcript -> summarize ->
+// synthesize). Returns { status, body }; the route handler wraps it with
+// json() so CORS headers stay per-request. Separated from the lock/route
+// logic so the single-flight guard stays small and auditable.
+async function runScan(
+  topic: string,
+  maxVideos: number,
+  apiKey: string
+): Promise<{ status: number; body: unknown }> {
+  let candidates: VideoCandidate[];
+  let slopFilteredCount: number;
+  try {
+    const filtered = await searchAndFilterTopicWithStats(topic, maxVideos);
+    candidates = filtered.candidates;
+    slopFilteredCount = filtered.slopFilteredCount;
+  } catch (err: any) {
+    console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`);
+    return {
+      status: 502,
+      body: { error: "YouTube search temporarily failed for this topic. Please retry." },
+    };
+  }
+  const summaries: VideoSummary[] = [];
+  let secondsSavedDelta = 0;
+  const skippedVideos: string[] = [];
+
+  for (const v of candidates) {
+    try {
+      const t = await fetchTimestampedTranscript(v.videoId);
+      const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
+      summaries.push(summary);
+      secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
+      await markVideoSeen(v.videoId);
+    } catch (err: any) {
+      // One poisoned video (blocked captions, Gemini error, parser
+      // drift) must not fail the whole topic — skip and continue.
+      console.warn(`[scan] skipped video ${v.videoId}: ${String(err?.message || err).slice(0, 200)}`);
+      skippedVideos.push(v.videoId);
+    }
+  }
+
+  if (summaries.length === 0) {
+    return {
+      status: 502,
+      body: {
+        error:
+          "None of the candidate videos could be summarized. Please retry or try another topic.",
+        skippedVideos,
+      },
+    };
+  }
+
+  const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
+  const digest = {
+    topic,
+    generatedAt: new Date().toISOString(),
+    crossVideoSynthesis: synthesis.crossVideoSynthesis,
+    suggestedSubtopics: synthesis.suggestedSubtopics,
+    videos: summaries,
+  };
+  await saveTopicDigest(digest);
+
+  const metrics = await updateMetrics({
+    scansCompleted: 1,
+    videosSummarized: summaries.length,
+    slopVideosFiltered: slopFilteredCount,
+    secondsSaved: secondsSavedDelta,
+  });
+
+  return { status: 200, body: { ok: true, digest, metrics, skippedVideos } };
 }
 
 const server = Bun.serve({
@@ -74,6 +161,12 @@ const server = Bun.serve({
 
     if (url.pathname === "/digest.js") {
       return new Response(Bun.file("ui/digest.js"), {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", ...cors },
+      });
+    }
+
+    if (url.pathname === "/tts-scan-utils.js") {
+      return new Response(Bun.file("ui/tts-scan-utils.js"), {
         headers: { "Content-Type": "text/javascript; charset=utf-8", ...cors },
       });
     }
@@ -186,67 +279,25 @@ const server = Bun.serve({
           );
         }
 
-        let candidates: VideoCandidate[];
-        let slopFilteredCount: number;
+        // Synchronous check-and-set: no await between the check and the
+        // assignment, so concurrent requests cannot both acquire the lock.
+        // A lock older than SCAN_STALE_MS is treated as dead (hung network
+        // hop) and superseded instead of wedging future scans with 409s.
+        if (activeScan && Date.now() - activeScan.since < SCAN_STALE_MS) {
+          return json(
+            { error: "scan_in_progress", topic: activeScan.topic },
+            409
+          );
+        }
+        activeScan = { topic, since: Date.now() };
         try {
-          const filtered = await searchAndFilterTopicWithStats(topic, maxVideos);
-          candidates = filtered.candidates;
-          slopFilteredCount = filtered.slopFilteredCount;
-        } catch (err: any) {
-          console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`);
-          return json(
-            { error: "YouTube search temporarily failed for this topic. Please retry." },
-            502
-          );
+          const result = await runScan(topic, maxVideos, apiKey);
+          return json(result.body, result.status);
+        } finally {
+          // Owner-only release: a 409'd or validation-rejected request never
+          // reaches here, so this cannot clear another request's lock.
+          if (activeScan?.topic === topic) activeScan = null;
         }
-        const summaries: VideoSummary[] = [];
-        let secondsSavedDelta = 0;
-        const skippedVideos: string[] = [];
-
-        for (const v of candidates) {
-          try {
-            const t = await fetchTimestampedTranscript(v.videoId);
-            const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
-            summaries.push(summary);
-            secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
-            await markVideoSeen(v.videoId);
-          } catch (err: any) {
-            // One poisoned video (blocked captions, Gemini error, parser
-            // drift) must not fail the whole topic — skip and continue.
-            console.warn(`[scan] skipped video ${v.videoId}: ${String(err?.message || err).slice(0, 200)}`);
-            skippedVideos.push(v.videoId);
-          }
-        }
-
-        if (summaries.length === 0) {
-          return json(
-            {
-              error:
-                "None of the candidate videos could be summarized. Please retry or try another topic.",
-              skippedVideos,
-            },
-            502
-          );
-        }
-
-        const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
-        const digest = {
-          topic,
-          generatedAt: new Date().toISOString(),
-          crossVideoSynthesis: synthesis.crossVideoSynthesis,
-          suggestedSubtopics: synthesis.suggestedSubtopics,
-          videos: summaries,
-        };
-        await saveTopicDigest(digest);
-
-        const metrics = await updateMetrics({
-          scansCompleted: 1,
-          videosSummarized: summaries.length,
-          slopVideosFiltered: slopFilteredCount,
-          secondsSaved: secondsSavedDelta,
-        });
-
-        return json({ ok: true, digest, metrics, skippedVideos });
       } catch (err: any) {
         return json({ error: String(err?.message || err) }, 500);
       }

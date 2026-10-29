@@ -1,3 +1,9 @@
+import {
+  getBrowserName,
+  shouldShowScanning,
+  ttsSupportStatus,
+} from "./tts-scan-utils.js";
+
 const API_BASE =
   typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.getURL
     ? "http://localhost:3456"
@@ -47,7 +53,7 @@ let state = {
   maskedKey: "",
 };
 let activeTopic = "";
-let isScanning = false;
+let scanningTopic = "";
 let topicFilterQuery = "";
 let topicFilterTab = "all"; // "all" | "ready" | "starred"
 let starterAutoCollapsedOnce = false;
@@ -432,6 +438,7 @@ function renderSidebar() {
       <div class="flex items-center gap-2 truncate flex-1 min-w-0">
         <span class="w-2 h-2 rounded-full shrink-0 ${hasDigest ? "bg-emerald-400 shadow-[0_0_6px_#34d399]" : "bg-slate-600"}"></span>
         <span class="truncate">${esc(t)}</span>
+        ${t === scanningTopic ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-sky-500/15 text-sky-300 shrink-0 animate-pulse">● scanning</span>` : ""}
         ${hasDigest ? `<span class="text-[10px] px-1.5 py-0.2 rounded bg-emerald-500/15 text-emerald-300 shrink-0">${vidCount}</span>` : ""}
       </div>
       <div class="flex items-center gap-1 shrink-0">
@@ -556,7 +563,7 @@ function renderMainDigest() {
   const digest = state.digests[activeTopic];
   const container = el("digestContainer");
 
-  if (isScanning) {
+  if (shouldShowScanning(scanningTopic, activeTopic)) {
     el("lastScannedBadge").textContent =
       "Scanning YouTube & extracting insights...";
     container.innerHTML = `
@@ -779,14 +786,78 @@ function renderMainDigest() {
   });
 }
 
-function speakText(text) {
+// --- TTS voice cache ---
+// Chrome returns [] from getVoices() until its async voiceschanged fires, so a
+// naive empty-check would false-positive on first click. Warm the cache at load
+// and keep updating it; speakText waits briefly before declaring unsupported.
+let ttsVoices = [];
+function refreshTtsVoices() {
+  try {
+    const v = window.speechSynthesis?.getVoices?.() || [];
+    if (v.length > 0) ttsVoices = v;
+  } catch {}
+}
+refreshTtsVoices();
+try {
+  window.speechSynthesis?.addEventListener?.("voiceschanged", refreshTtsVoices);
+} catch {}
+
+function waitForTtsVoices(timeoutMs = 800) {
+  refreshTtsVoices();
+  if (ttsVoices.length > 0) return Promise.resolve(ttsVoices);
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = () => {
+      if (done) return;
+      done = true;
+      refreshTtsVoices();
+      resolve(ttsVoices);
+    };
+    const timer = setTimeout(finish, timeoutMs);
+    try {
+      window.speechSynthesis.addEventListener("voiceschanged", () => {
+        clearTimeout(timer);
+        finish();
+      }, { once: true });
+    } catch {
+      clearTimeout(timer);
+      finish();
+    }
+  });
+}
+
+function ttsBrowserName() {
+  try {
+    return getBrowserName(
+      navigator.userAgent,
+      typeof navigator.brave !== "undefined",
+      navigator.userAgentData?.brands
+    );
+  } catch {
+    return "this browser";
+  }
+}
+
+async function speakText(text) {
+  const browser = ttsBrowserName();
   if (!("speechSynthesis" in window)) {
-    showToast("Speech synthesis not supported in this browser", true);
+    showToast(`Read aloud not supported on ${browser}: speech synthesis unavailable`, true);
     return;
   }
+  const voices = await waitForTtsVoices();
+  if (ttsSupportStatus(true, voices.length) !== "ok") {
+    showToast(`Read aloud not supported on ${browser}: no voices available`, true);
+    return;
+  }
+  // cancel() before speak fires an error event ("interrupted"/"canceled") on
+  // the previous utterance — that's the restart flow, not a failure.
   window.speechSynthesis.cancel();
   const utter = new SpeechSynthesisUtterance(text);
   utter.rate = 1.05;
+  utter.onerror = (e) => {
+    if (e?.error === "interrupted" || e?.error === "canceled") return;
+    showToast(`Read aloud failed on ${browser}`, true);
+  };
   window.speechSynthesis.speak(utter);
   showToast("🔊 Reading aloud... (click again to restart)");
 }
@@ -970,10 +1041,12 @@ el("btnScanTopic").addEventListener("click", async () => {
     serverUnreachableToast("scan");
     return;
   }
-  if (!activeTopic || isScanning) return;
-  isScanning = true;
+  if (!activeTopic || scanningTopic) return;
+  const topic = activeTopic;
+  scanningTopic = topic;
   el("btnScanTopic").disabled = true;
   el("scanBtnText").textContent = "Scanning...";
+  renderSidebar();
   renderMainDigest();
 
   try {
@@ -981,19 +1054,28 @@ el("btnScanTopic").addEventListener("click", async () => {
     const res = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ topic: activeTopic, maxVideos }),
+      body: JSON.stringify({ topic, maxVideos }),
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Scan failed");
+    if (!res.ok) {
+      if (data.error === "scan_in_progress") {
+        showToast(
+          `"${data.topic || "Another topic"}" is already scanning — please wait`,
+          true
+        );
+        return;
+      }
+      throw new Error(data.error || "Scan failed");
+    }
     setOfflineMode(false);
-    state.digests[activeTopic] = data.digest;
+    state.digests[topic] = data.digest;
     if (data.metrics) state.metrics = data.metrics;
     resetRssUnread();
     const skipped = Array.isArray(data.skippedVideos) ? data.skippedVideos.length : 0;
     showToast(
       skipped > 0
-        ? `Summarized ${data.digest.videos.length} videos for "${activeTopic}" (${skipped} skipped)`
-        : `Summarized ${data.digest.videos.length} videos for "${activeTopic}"`
+        ? `Summarized ${data.digest.videos.length} videos for "${topic}" (${skipped} skipped)`
+        : `Summarized ${data.digest.videos.length} videos for "${topic}"`
     );
   } catch (err) {
     if (isServerUnreachable(err)) {
@@ -1003,7 +1085,7 @@ el("btnScanTopic").addEventListener("click", async () => {
       showToast(err.message || "Scan failed", true);
     }
   } finally {
-    isScanning = false;
+    scanningTopic = "";
     el("btnScanTopic").disabled = isServerOffline;
     el("scanBtnText").textContent = "Scan Topic Now";
     renderAll();
