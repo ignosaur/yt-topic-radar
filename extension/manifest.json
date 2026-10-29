@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "YouTube Topic Radar — AI Topic Digest",
+  "name": "Topic Digest for YouTube",
   "version": "0.1.0",
-  "description": "Subscribe to topics on YouTube, filter out clickbait, and get deep timestamped AI summaries without missing key points.",
+  "description": "Subscribe to topics on YouTube, filter out clickbait, and get deep timestamped AI summaries. Unofficial; not affiliated with YouTube.",
   "permissions": ["storage", "sidePanel", "alarms", "tabs", "notifications"],
   "host_permissions": [
     "http://localhost:3456/*",
@@ -10,11 +10,17 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "icons": {
-    "256": "icon.png"
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
   },
   "action": {
-    "default_title": "Open YouTube Topic Radar",
-    "default_icon": "icon.png"
+    "default_title": "Open Topic Digest",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
   },
   "side_panel": {
     "default_path": "digest.html"

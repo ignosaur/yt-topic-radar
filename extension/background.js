@@ -1,4 +1,4 @@
-// YouTube Topic Radar — MV3 service worker: side panel + Pro RSS polling.
+// Topic Digest for YouTube — MV3 service worker: side panel + Pro RSS polling.
 const API_BASE = "http://localhost:3456";
 const ALARM_NAME = "rss-poll";
 const POLL_MINUTES = 30;
@@ -87,7 +87,7 @@ async function pollRss() {
           `rss|${encodeURIComponent(channel.topic || "")}|${video.videoId}`,
           {
             type: "basic",
-            iconUrl: chrome.runtime.getURL("icon.png"),
+            iconUrl: chrome.runtime.getURL("icons/icon128.png"),
             title: channel.channelName || channel.topic || "New video",
             message: video.title || "New video published",
           }

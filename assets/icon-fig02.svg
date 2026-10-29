@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <title>Topic Digest — Play Origin (master, use at 48px and above)</title>
+  <!-- Fig. 02 "Play Origin" in Slate + Signal Amber: platform-agnostic
+       mark for video, audio, and podcast streams. -->
+  <circle cx="64" cy="64" r="61" fill="#0F172A" stroke="#475569" stroke-width="2.5"/>
+  <!-- sweep wedge -->
+  <path d="M64 64 L108.45 56.96 A45 45 0 0 1 108.45 71.04 Z" fill="#F59E0B" opacity="0.18"/>
+  <!-- rings -->
+  <circle cx="64" cy="64" r="45" fill="none" stroke="#CBD5E1" stroke-width="3"/>
+  <circle cx="64" cy="64" r="28" fill="none" stroke="#CBD5E1" stroke-width="3"/>
+  <!-- blips on the outer ring -->
+  <circle cx="38.2" cy="27.1" r="2.6" fill="#F59E0B"/>
+  <circle cx="85.1" cy="103.7" r="2.6" fill="#F59E0B"/>
+  <!-- beam from the play apex to the ring edge -->
+  <line x1="76" y1="64" x2="108" y2="64" stroke="#F59E0B" stroke-width="3.2" stroke-linecap="round"/>
+  <!-- play origin -->
+  <path d="M56 52 L76 64 L56 76 Z" fill="#F59E0B" stroke="#F59E0B" stroke-width="3" stroke-linejoin="round"/>
+</svg>

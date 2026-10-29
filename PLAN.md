@@ -1,4 +1,4 @@
-# YouTube Topic Radar — Plan (active)
+# Topic Digest for YouTube — Plan (active)
 
 > Completed work (Phases 1–3, 2.5) is archived in `docs/phase-history.md`.
 > Commands and architecture live in `README.md` and `AGENTS.md` — this file

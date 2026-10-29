@@ -56,7 +56,7 @@ Saved: 2026-10-28. Supersedes the earlier standalone plan discussion in-session.
 - **Risks:** `chrome.storage.sync` quota (topics payload is small — fine); bundle first-paint cost (~1.1 MB est.). **Recovery:** dev path (`bun run ui` + `build:ext:dev`) remains fully functional and untouched throughout.
 
 ### M2 — Store packaging
-- **Scope:** Icons 16/32/48/128 generated from `assets/logo-256.png` (manifest currently has none), version bump, `package:chrome` script → versioned zip in `dist/`, privacy policy page, store listing copy + per-permission justifications + data-disclosure form ("no developer server; key stored locally in `chrome.storage.local`; data sent only to YouTube/Google at user direction with user's own key").
+- **Scope:** Icons 16/32/48/128 — **done 2026-10-29, ahead of M2** (`extension/icons/`, Fig. 02 "Play Origin" from `assets/icon-fig02*.svg`; manifest + toolbar + notifications + favicon all wired). Remaining: version bump, `package:chrome` script → versioned zip in `dist/`, privacy policy page, store listing copy + per-permission justifications + data-disclosure form ("no developer server; key stored locally in `chrome.storage.local`; data sent only to YouTube/Google at user direction with user's own key").
 - **Dependencies:** M1.
 - **DoD:** Zip loads unpacked on a second machine/clean profile with no dev setup and passes the M1 scan checklist; permission list is minimal, each justified in writing.
 - **Tests:** Fresh-profile install + M1 checklist on that second profile.

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="32" height="32" viewBox="0 0 32 32">
+  <title>Topic Digest — Play Origin (small cut, use at 32px and below)</title>
+  <!-- Hand-simplified Slate + Signal Amber cut for 32px and 16px. -->
+  <circle cx="16" cy="16" r="14.8" fill="#0F172A" stroke="#475569" stroke-width="1.2"/>
+  <circle cx="16" cy="16" r="10" fill="none" stroke="#CBD5E1" stroke-width="2"/>
+  <line x1="21.5" y1="16" x2="26" y2="16" stroke="#F59E0B" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M12.5 10.5 L21.5 16 L12.5 21.5 Z" fill="#F59E0B" stroke="#F59E0B" stroke-width="2" stroke-linejoin="round"/>
+</svg>

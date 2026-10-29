@@ -3,7 +3,8 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>YouTube Topic Radar — AI Topic Digest</title>
+  <title>Topic Digest for YouTube</title>
+  <link rel="icon" href="./favicon.ico" sizes="16x16 32x32 48x48" />
   <link rel="stylesheet" href="./digest.css" />
 </head>
 <body class="h-screen flex overflow-hidden">
@@ -15,9 +16,14 @@
   <aside id="topicsSidebar" class="w-80 bg-slate-900/90 border-r border-slate-800 flex flex-col h-full shrink-0">
     <div class="p-4 border-b border-slate-800 flex items-center justify-between">
       <div class="flex items-center gap-2.5">
-        <span class="w-8 h-8 rounded-lg bg-red-600 flex items-center justify-center font-bold text-white shadow">📡</span>
+        <svg class="w-8 h-8 shrink-0 drop-shadow" viewBox="0 0 32 32" aria-hidden="true">
+          <circle cx="16" cy="16" r="14.8" fill="#0F172A" stroke="#475569" stroke-width="1.2"/>
+          <circle cx="16" cy="16" r="10" fill="none" stroke="#CBD5E1" stroke-width="2"/>
+          <line x1="21.5" y1="16" x2="26" y2="16" stroke="#F59E0B" stroke-width="2.2" stroke-linecap="round"/>
+          <path d="M12.5 10.5 L21.5 16 L12.5 21.5 Z" fill="#F59E0B" stroke="#F59E0B" stroke-width="2" stroke-linejoin="round"/>
+        </svg>
         <div>
-          <h1 class="font-bold text-slate-100 text-base leading-tight">YT Topic Radar</h1>
+          <h1 class="font-bold text-slate-100 text-base leading-tight">Topic Digest</h1>
           <p class="text-xs text-slate-400">Signal over clickbait</p>
         </div>
       </div>
@@ -123,6 +129,7 @@
         </label>
       </div>
       <div id="statusToast" class="hidden text-xs text-emerald-400 px-1 pt-0.5 truncate"></div>
+      <p class="text-[10px] text-slate-600 text-center leading-tight">Unofficial tool · not affiliated with YouTube</p>
     </div>
   </aside>
 

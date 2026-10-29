@@ -177,6 +177,12 @@ const server = Bun.serve({
       });
     }
 
+    if (url.pathname === "/favicon.ico") {
+      return new Response(Bun.file("ui/favicon.ico"), {
+        headers: { "Content-Type": "image/x-icon", ...cors },
+      });
+    }
+
     // API: Get full state (topics, digests, starter topics, metrics, monetization, hasApiKey)
     if (url.pathname === "/api/state" && req.method === "GET") {
       const [sync, digests, apiKey, metrics, entitlements] = await Promise.all([
@@ -341,4 +347,4 @@ const server = Bun.serve({
   },
 });
 
-console.log(`🚀 YouTube Topic Radar UI running at http://localhost:${server.port}`);
+console.log(`🚀 Topic Digest for YouTube UI running at http://localhost:${server.port}`);

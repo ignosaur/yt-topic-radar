@@ -117,7 +117,7 @@ let isServerOffline = false;
 let serverBannerDismissed = false;
 
 const SERVER_OFFLINE_MSG =
-  "Radar server not running \u2014 run `bun run ui` on :3456, then reopen the panel.";
+  "Local server not running \u2014 run `bun run ui` on :3456, then reopen the panel.";
 
 function isServerUnreachable(err) {
   if (!err) return false;

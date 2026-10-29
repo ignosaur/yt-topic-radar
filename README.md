@@ -1,8 +1,10 @@
-# YouTube Topic Radar
+# Topic Digest for YouTube
 
 Subscribe to topics, not channels. It scans YouTube, drops clickbait and Shorts, reads the timed transcripts, and produces deep, type-aware summaries with clickable `[MM:SS]` timestamps.
 
 TypeScript + Bun. One shared engine (`lib/`) runs in the local dashboard and the Chrome/Brave extension scaffold.
+
+> **Disclaimer:** Unofficial project. Not affiliated with, endorsed by, or sponsored by YouTube or Google LLC. YouTube is a trademark of Google LLC.
 
 ## What you get
 

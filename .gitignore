@@ -24,3 +24,7 @@ demo-videos*/
 test-results/
 *.mp4
 demo_*.spec.ts
+*.log
+
+# Playwright MCP scratch output (page snapshots + console dumps)
+.playwright-mcp/

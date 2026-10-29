@@ -119,7 +119,7 @@ async function main() {
   const topic = process.argv[2] || "AI Coding Agents";
   const maxVideos = Number(process.argv[3] || 3);
 
-  console.log(`\n📡 [YouTube Topic Radar] Scanning topic: "${topic}" (Top ${maxVideos})...`);
+  console.log(`\n📡 [Topic Digest] Scanning topic: "${topic}" (Top ${maxVideos})...`);
   const candidates = await searchAndFilterTopic(topic, maxVideos);
 
   if (candidates.length === 0) {
