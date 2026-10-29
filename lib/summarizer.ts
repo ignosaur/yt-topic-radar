@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
-import type { TranscriptSegment, VideoCandidate } from "./youtube";
+import type { SkippedVideo, TranscriptSegment, VideoCandidate } from "./youtube";
 import { formatTimestamp } from "./youtube";
 
 export type VideoType =
@@ -41,6 +41,8 @@ export interface TopicDigest {
   crossVideoSynthesis: string;
   suggestedSubtopics: string[];
   videos: VideoSummary[];
+  requestedCount?: number;
+  skippedVideos?: SkippedVideo[];
 }
 
 const SUMMARY_SCHEMA: Schema = {

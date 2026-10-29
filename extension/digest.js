@@ -606,6 +606,21 @@ function renderMainDigest() {
     )
     .join("");
 
+  const skippedList = Array.isArray(digest.skippedVideos) ? digest.skippedVideos : [];
+  const skipNote = (() => {
+    const summarized = digest.videos.length;
+    const requested = Number(digest.requestedCount || summarized);
+    if (skippedList.length === 0 && summarized === requested) return "";
+    const titles = skippedList.map((s) => esc(s.title)).join(" · ");
+    const text =
+      skippedList.length > 0
+        ? summarized === requested
+          ? `${summarized} of ${requested} summarized · ${skippedList.length} skipped & replaced`
+          : `${summarized} of ${requested} summarized · ${skippedList.length} skipped`
+        : `${summarized} of ${requested} summarized`;
+    return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
+  })();
+
   const videosHtml = digest.videos
     .map((v, idx) => {
       const verdictColor =
@@ -698,6 +713,7 @@ function renderMainDigest() {
         </div>
         <button id="btnReadSynthesis" class="text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 px-2.5 py-1 rounded border border-indigo-500/30">🔊 Read Synthesis</button>
       </div>
+      ${skipNote}
       <p class="text-sm text-slate-200 leading-relaxed">${digest.crossVideoSynthesis}</p>
       ${
         subtopicsHtml
@@ -1073,12 +1089,22 @@ el("btnScanTopic").addEventListener("click", async () => {
     state.digests[topic] = data.digest;
     if (data.metrics) state.metrics = data.metrics;
     resetRssUnread();
-    const skipped = Array.isArray(data.skippedVideos) ? data.skippedVideos.length : 0;
-    showToast(
-      skipped > 0
-        ? `Summarized ${data.digest.videos.length} videos for "${topic}" (${skipped} skipped)`
-        : `Summarized ${data.digest.videos.length} videos for "${topic}"`
-    );
+    const summarized = data.digest.videos.length;
+    const requested = Number(data.digest.requestedCount || summarized);
+    const skipped = Array.isArray(data.digest.skippedVideos)
+      ? data.digest.skippedVideos.length
+      : 0;
+    if (skipped > 0) {
+      const msg =
+        summarized === requested
+          ? `Summarized ${summarized} videos for "${topic}" (${skipped} skipped & replaced)`
+          : `Summarized ${summarized} of ${requested} videos for "${topic}" (${skipped} skipped)`;
+      showToast(msg);
+    } else if (summarized < requested) {
+      showToast(`Summarized ${summarized} of ${requested} videos for "${topic}"`);
+    } else {
+      showToast(`Summarized ${summarized} videos for "${topic}"`);
+    }
   } catch (err) {
     if (isServerUnreachable(err)) {
       setOfflineMode(true);

@@ -2,12 +2,13 @@ import {
   searchAndFilterTopicWithStats,
   fetchTimestampedTranscript,
   fetchChannelRssVideos,
+  collectWithBackfill,
   type VideoCandidate,
 } from "./lib/youtube";
 import {
   summarizeVideo,
   synthesizeTopicDigest,
-  type VideoSummary,
+  type TopicDigest,
 } from "./lib/summarizer";
 import {
   getSyncState,
@@ -78,7 +79,7 @@ async function runScan(
   let slopFilteredCount: number;
   try {
     const filtered = await searchAndFilterTopicWithStats(topic, maxVideos);
-    candidates = filtered.candidates;
+    candidates = filtered.rankedPool;
     slopFilteredCount = filtered.slopFilteredCount;
   } catch (err: any) {
     console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`);
@@ -87,24 +88,24 @@ async function runScan(
       body: { error: "YouTube search temporarily failed for this topic. Please retry." },
     };
   }
-  const summaries: VideoSummary[] = [];
   let secondsSavedDelta = 0;
-  const skippedVideos: string[] = [];
 
-  for (const v of candidates) {
-    try {
+  const { results: summaries, skipped } = await collectWithBackfill(
+    candidates,
+    maxVideos,
+    async (v) => {
       const t = await fetchTimestampedTranscript(v.videoId);
       const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
-      summaries.push(summary);
       secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
       await markVideoSeen(v.videoId);
-    } catch (err: any) {
-      // One poisoned video (blocked captions, Gemini error, parser
-      // drift) must not fail the whole topic — skip and continue.
-      console.warn(`[scan] skipped video ${v.videoId}: ${String(err?.message || err).slice(0, 200)}`);
-      skippedVideos.push(v.videoId);
+      return summary;
     }
+  );
+
+  for (const s of skipped) {
+    console.warn(`[scan] skipped video ${s.videoId}: ${s.reason}`);
   }
+  const skippedVideos = skipped.map((s) => s.videoId);
 
   if (summaries.length === 0) {
     return {
@@ -118,12 +119,14 @@ async function runScan(
   }
 
   const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
-  const digest = {
+  const digest: TopicDigest = {
     topic,
     generatedAt: new Date().toISOString(),
     crossVideoSynthesis: synthesis.crossVideoSynthesis,
     suggestedSubtopics: synthesis.suggestedSubtopics,
     videos: summaries,
+    requestedCount: maxVideos,
+    ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
   };
   await saveTopicDigest(digest);
 
@@ -133,6 +136,10 @@ async function runScan(
     slopVideosFiltered: slopFilteredCount,
     secondsSaved: secondsSavedDelta,
   });
+
+  console.log(
+    `[scan] topic="${topic}" requested=${maxVideos} summarized=${summaries.length} skipped=${skipped.length}`
+  );
 
   return { status: 200, body: { ok: true, digest, metrics, skippedVideos } };
 }

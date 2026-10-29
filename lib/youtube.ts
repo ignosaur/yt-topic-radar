@@ -135,6 +135,7 @@ export async function searchAndFilterTopicWithStats(
   maxResults = 4
 ): Promise<{
   candidates: VideoCandidate[];
+  rankedPool: VideoCandidate[];
   slopFilteredCount: number;
   totalEvaluated: number;
 }> {
@@ -208,6 +209,7 @@ export async function searchAndFilterTopicWithStats(
 
   return {
     candidates: selected,
+    rankedPool: sorted,
     slopFilteredCount,
     totalEvaluated,
   };
@@ -220,6 +222,50 @@ export async function searchAndFilterTopic(
   const res = await searchAndFilterTopicWithStats(topic, maxResults);
   return res.candidates;
 }
+
+/**
+ * Backfill guardrail: how many extra candidates a scan may attempt to replace
+ * ones that failed summarization. Caps Gemini spend during a provider outage.
+ */
+export const MAX_REPLACEMENTS = 2;
+
+export interface SkippedVideo {
+  videoId: string;
+  title: string;
+  reason: string;
+}
+
+/**
+ * Attempt candidates in rank order until `requested` succeed, allowing up to
+ * `MAX_REPLACEMENTS` extra attempts for failures. Results stay in rank order
+ * (iteration order), and each failure is recorded with a truncated reason.
+ */
+export async function collectWithBackfill<T>(
+  rankedPool: VideoCandidate[],
+  requested: number,
+  process: (v: VideoCandidate) => Promise<T>
+): Promise<{ results: T[]; skipped: SkippedVideo[] }> {
+  const results: T[] = [];
+  const skipped: SkippedVideo[] = [];
+  const attemptsLimit = Math.max(0, requested) + MAX_REPLACEMENTS;
+
+  for (const v of rankedPool) {
+    if (results.length >= requested) break;
+    if (results.length + skipped.length >= attemptsLimit) break;
+    try {
+      results.push(await process(v));
+    } catch (err: any) {
+      skipped.push({
+        videoId: v.videoId,
+        title: v.title,
+        reason: String(err?.message || err).slice(0, 200),
+      });
+    }
+  }
+
+  return { results, skipped };
+}
+
 
 /**
  * Step 3: Fetch timed transcript grouped into ~45-second timestamped blocks.
