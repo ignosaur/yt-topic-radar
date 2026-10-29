@@ -10,7 +10,8 @@
     "build:ext": "bun build ui/standalone-entry.ts --target browser --conditions=browser --minify-syntax --define __RADAR_STANDALONE_BUILD__=\"true\" --define __RADAR_PRO_ENABLED__=\"false\" --define 'process.env.RADAR_STORE_PATH'='\".local-radar-store.json\"' --define 'process.env.GEMINI_API_KEY'='\"\"' --outfile extension/digest.js && cp ui/digest.html ui/digest.css ui/favicon.ico extension/ && cp scripts/manifest.prod.json extension/manifest.json && cp scripts/background.prod.js extension/background.js && cp scripts/dnr-rules.json extension/rules.json",
     "build:ext:dev": "cp ui/digest.html ui/digest.js ui/digest.css ui/tts-scan-utils.js ui/favicon.ico extension/ && cp scripts/manifest.dev.json extension/manifest.json && cp scripts/background.dev.js extension/background.js && rm -f extension/rules.json",
     "package:chrome": "bun run build:ext && bun scripts/package-chrome.ts",
-    "verify:package": "bun scripts/verify-package.ts"
+    "verify:package": "bun scripts/verify-package.ts",
+    "preflight:m3": "bun scripts/preflight-m3.ts"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.1",

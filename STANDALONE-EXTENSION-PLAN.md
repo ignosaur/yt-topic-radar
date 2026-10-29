@@ -1,6 +1,6 @@
 # Standalone Chrome Extension — Implementation Plan (KISS/YAGNI)
 
-Status: **M0–M2 implemented.** M0 passed; M1 ships serverless (automated gates green, manual checklist open); M2 produces a verified `dist/yt-topic-radar-v1.0.0.zip` but is blocked on owner items. M3/M4 not started.
+Status: **M0–M2 implemented; M3 prep automated.** M0 passed; M1 ships serverless (automated gates green, manual checklist open); M2 produces a verified `dist/yt-topic-radar-v1.0.0.zip` but is blocked on owner items; M3 has a GO/NO-GO preflight and a passing packaged-zip acceptance run, and is blocked on owner submission inputs. M4 deferred.
 Saved: 2026-10-28. Supersedes the earlier standalone plan discussion in-session.
 Amended: 2026-10-29 — Pro gated behind `__RADAR_PRO_ENABLED__` (OFF in v1, activation M4); RSS deferred; M0 dry-run findings + M1/M2 implementation evidence recorded below.
 
@@ -69,7 +69,7 @@ No Pro feature may bypass the flag: a new Pro surface added to server/dev mode m
 | M0 Browser spike | Any implementation | No | ✅ Passed 2026-10-29 |
 | M1 Standalone build | M2 packaging | No | ✅ Implemented — manual checklist open |
 | M2 Store packaging | M3 submission | No | ✅ Automated gates green — owner items blocked |
-| M3 Unlisted beta | M4 + public listing | Yes — store account + unlisted submission | Not started |
+| M3 Unlisted beta | M4 + public listing | Yes — store account + unlisted submission | 🚧 Prep automated — blocked on owner |
 | M4 Pro in standalone | Monetized listing | Yes — explicit approval to monetize | Deferred |
 
 ### M0 — Browser spike (GO/NO-GO) — ✅ PASSED 2026-10-29
@@ -121,8 +121,8 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 - [ ] Key survives a **full browser restart** (manual).
 - [x] A 6th topic can be added (smoke A6: `/api/sync` accepted 6 topics).
 - [x] Standalone scan `maxVideos=1` returns 200 with 1 summarized video in ~25s, no errors (Playwright E2E, 2026-10-29).
-- [ ] `maxVideos=3` and the `[MM:SS]` player (manual).
-- [ ] Export/Import round-trips topics + digests + metrics with **no topic clamp** (manual; route implemented with `enforceTopicLimit:false`).
+- [x] `maxVideos=3` returns 3 videos and clicking a chapter timestamp sets the player to `start=0` (M3 acceptance A5/A6).
+- [x] Export contains no key/entitlements; importing a backup with extra topics gives `topicsCount=13` with no clamp (M3 acceptance A7).
 - [x] No Pro toggle visible in Settings (smoke A5); upgrade line follows `proEnabled` in `renderMetricsUI`.
 - [x] Prod manifest has no localhost/alarms/notifications permission (`scripts/manifest.prod.json`; `grep` clean).
 - [x] Zero `localhost:3456` requests and zero occurrences of the string in the prod bundle (smoke A3 + `grep` = 0).
@@ -177,7 +177,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 **Risks / recovery**
 Icons were done early, so M2 is mostly paperwork. If the DNR rule draws review questions, respond with the Decision 9 justification; do not silently drop it (that would break scans).
 
-### M3 — Unlisted beta launch
+### M3 — Unlisted beta launch — 🚧 launch prep automated; submission blocked on owner
 
 **Scope**
 - Chrome Web Store submission as **unlisted** (Decision 6), tester install link, soak period.
@@ -196,8 +196,13 @@ Icons were done early, so M2 is mostly paperwork. If the DNR rule draws review q
 - [ ] Soak period shows no blocker-severity defects (scan failure, data loss, localhost dependency); any found are fixed and re-verified.
 - [ ] Public-flip decision explicitly deferred to the owner.
 
+**Preparation shipped (2026-10-29)**
+- `scripts/preflight-m3.ts` (`bun run preflight:m3`): hard gate over the built zip, version parity (package.json + `scripts/manifest.prod.json` + zip manifest), required `store/` files, owner placeholders, screenshots, and unchecked **pre-submission** steps. Post-approval and "submit for review" sections are excluded so `GO` is reachable. Current result: **NO-GO, blockers=40** (zip OK + verifier PASS + version 1.0.0; 24 owner placeholders / 12 unique, missing `store/screenshots/`, 27 unchecked steps).
+- `tests/m3-acceptance.mjs`: opt-in end-to-end run against the **packaged zip** — **PASS 7/7** on 2026-10-29: load with zero errors and no localhost, starter packs, key persistence across reload, 6 topics, 3-video scan (200), timestamp click drives the in-app player (`start=`), export excludes key/entitlements, import keeps all 13 topics (exact count asserted). Re-runs that day hit Gemini quota (429) and a hanging model, so A5/A6 could not re-run; the harness now fails after `M3_SCAN_TIMEOUT_MS` (default 8 min) instead of hanging, and accepts `M3_SCAN_MAX_VIDEOS` for a cheaper run. A7 re-verified 13/13 topics after the assertion was tightened.
+- Paperwork: `store/tester-instructions.md` (unaided tester script + report template), `store/submission-checklist.md` (ordered unlisted submission, 38 owner steps, exact artifact/version values), `store/release-notes-v1.0.0.md` (beta notes, exclusions, known limits).
+
 **Tests / evidence**
-Tester report(s) recorded in this file; listing ID + approval date; defect log with resolutions.
+Tester report(s) recorded in this file; listing ID + approval date; defect log with resolutions. `bun run preflight:m3` must print `GO` before submission.
 
 **Risks / recovery**
 Store review questions on host permissions, the DNR header rule, or remote code. Respond with justifications or reduce permissions; dev builds remain unaffected.
@@ -245,7 +250,7 @@ Firefox / Safari / official Edge listing · **Pro in standalone v1** (all Pro fe
 | What needs your decision? | **No material product decisions remain.** Pro is settled by deferral: all Pro features behind `__RADAR_PRO_ENABLED__=false` in v1, activation is M4. Operational only (below). |
 | How will it be built? | Existing fetch-shim seam + existing browser storage branches + `lib/engine.ts` pipeline port + Bun browser bundle as `extension/digest.js`, with every Pro feature gated behind one build-time flag. **Built.** |
 | How will success be proved? | M0 ✅ passed (sandbox Chromium, 2026-10-29, with the DNR ruleset); M1 automated gates ✅ (engine tests 7/7, smoke 6/6, responsive 7/7, live scan 200); M2 ✅ reproducible zip + 34-check audit + extracted-zip smoke. Remaining: manual M1 checklist and M2 second-machine install. |
-| What could go wrong? | Store review rejects the DNR `Origin` rewrite → content-script fallback needs an owner decision (Decision 9). Store review pushback on permissions → reduce/justify. Dev mode is the always-working fallback. |
+| What could go wrong? | Store review rejects the DNR `Origin` rewrite → content-script fallback needs an owner decision (Decision 9). Store review pushback on permissions → reduce/justify. Dev mode is the always-working fallback. M3 is blocked on owner inputs (account, hosted policy, support email, screenshots, testers), surfaced by `bun run preflight:m3`. |
 
 ## Operational items (needed at M3, not before)
 

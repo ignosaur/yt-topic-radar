@@ -1,7 +1,7 @@
 # Store Listing — Topic Digest for YouTube
 
 Copy for the Chrome Web Store listing. Every statement below is verifiable against the
-standalone production build; anything requiring the owner is marked with an `[OWNER: ...]` placeholder.
+standalone production build; anything requiring the owner is marked with an `OWNER` placeholder.
 
 ---
 
