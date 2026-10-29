@@ -364,6 +364,8 @@ details[open] .group-open\:rotate-180 {
   #sidebarBackdrop {
     display: none !important;
   }
+  /* Hide an element from the 640px breakpoint up (Tailwind `sm:hidden`). */
+  .sm\:hidden { display: none !important; }
 }
 
 /* Narrow viewports < 640px (~360px Chrome Side Panel): slide-over sidebar drawer */
