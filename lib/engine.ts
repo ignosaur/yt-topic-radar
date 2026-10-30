@@ -14,6 +14,7 @@ import {
 import {
   markVideoSeen,
   saveTopicDigest,
+  getTopicGeneration,
   updateMetrics,
 } from "./storage";
 
@@ -28,6 +29,7 @@ export interface EngineDeps {
   summarize: typeof summarizeVideo;
   synthesize: typeof synthesizeTopicDigest;
   saveDigest: typeof saveTopicDigest;
+  getTopicGeneration?: typeof getTopicGeneration;
   markSeen: (videoId: string) => Promise<void>;
   updateMetrics: typeof updateMetrics;
   acquireLock: (topic: string) => Promise<boolean>;
@@ -105,6 +107,7 @@ export function createEngineDeps(): EngineDeps {
     summarize: summarizeVideo,
     synthesize: synthesizeTopicDigest,
     saveDigest: saveTopicDigest,
+    getTopicGeneration,
     markSeen: (videoId: string) => markVideoSeen(videoId),
     updateMetrics,
     ...createChromeScanLock(),
@@ -132,6 +135,7 @@ export async function runStandaloneScan(
   }
 
   try {
+    const generation = await deps.getTopicGeneration?.(topic);
     let candidates: VideoCandidate[];
     let slopFilteredCount: number;
     try {
@@ -205,7 +209,9 @@ export async function runStandaloneScan(
       ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
     };
 
-    await deps.saveDigest(digest);
+    if (await deps.saveDigest(digest, generation) === false) {
+      return { status: 409, body: { error: "topic_changed" } };
+    }
     const metrics = await deps.updateMetrics({
       scansCompleted: 1,
       videosSummarized: summaries.length,

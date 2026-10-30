@@ -18,6 +18,8 @@ export interface SyncState {
   minDurationSec: number;
   topicMeta?: Record<string, TopicMeta>;
   telemetryOptIn?: boolean;
+  revision?: number;
+  topicGenerations?: Record<string, string>;
 }
 
 export interface UsageMetrics {
@@ -53,6 +55,7 @@ export const STARTER_TOPICS: Record<string, string[]> = {
 };
 
 const DEFAULT_SYNC: SyncState = {
+  revision: 0,
   topics: ["AI Coding Agents", "Local LLMs"],
   pinnedChannels: [],
   minDurationSec: 180,
@@ -140,19 +143,77 @@ export async function getSyncState(): Promise<SyncState> {
   return { ...DEFAULT_SYNC, ...store.sync };
 }
 
-export async function saveSyncState(state: SyncState): Promise<void> {
-  if (isBrowserExtension) {
-    const ch = (globalThis as any).chrome;
-    await ch.storage.sync.set({ radarSync: state });
-    return;
+// Serialize read/check/write across requests and extension pages.
+let topicWriteChain: Promise<unknown> = Promise.resolve();
+function withTopicWrite<T>(write: () => Promise<T>): Promise<T> {
+  const locks = (globalThis as any).navigator?.locks;
+  if (isIndexedDBAvailable && locks) return locks.request("radar-topic-write", write);
+  const next = topicWriteChain.then(write);
+  topicWriteChain = next.catch(() => {}); // A rejected save must not poison later saves.
+  return next;
+}
+
+export class StaleSyncError extends Error {
+  constructor() { super("stale_state"); }
+}
+
+// Called under withTopicWrite so rollback cannot overwrite another topic write.
+async function saveBrowserTopicState(
+  next: SyncState,
+  digests: Record<string, TopicDigest>,
+  previousDigests: Record<string, TopicDigest>
+): Promise<void> {
+  await idbSet("radarDigests", digests);
+  try {
+    if (isBrowserExtension) await (globalThis as any).chrome.storage.sync.set({ radarSync: next });
+    else await idbSet("radarSync", next);
+  } catch (saveError) {
+    // Both writes are under the topic lock; preserve content on a failed sync commit.
+    try {
+      await idbSet("radarDigests", previousDigests);
+    } catch (restoreError) {
+      throw new AggregateError([saveError, restoreError], "Failed to save topics and restore digests");
+    }
+    throw saveError;
   }
-  if (isIndexedDBAvailable) {
-    await idbSet("radarSync", state);
-    return;
-  }
-  const store = await readCliStore();
-  store.sync = state;
-  await writeCliStore(store);
+}
+
+export async function saveSyncState(state: SyncState, expectedRevision?: number): Promise<SyncState> {
+  return withTopicWrite(async () => {
+    const current = await getSyncState();
+    if (expectedRevision !== undefined && expectedRevision !== (current.revision || 0)) {
+      throw new StaleSyncError();
+    }
+    const removed = new Set(current.topics.filter(topic => !state.topics.includes(topic)));
+    const topicMeta = { ...(state.topicMeta || {}) };
+    for (const topic of removed) delete topicMeta[topic];
+    const next: SyncState = {
+      ...state,
+      revision: (current.revision || 0) + 1,
+      topicGenerations: Object.fromEntries(state.topics.map(topic => [topic,
+        current.topics.includes(topic) ? current.topicGenerations?.[topic] || "legacy" : crypto.randomUUID(),
+      ])),
+      topicMeta,
+      pinnedChannels: state.pinnedChannels.filter(channel => !removed.has(channel.topic)),
+    };
+    const previousDigests = await getDigests();
+    const digests = { ...previousDigests };
+    for (const topic of removed) delete digests[topic];
+    if (isIndexedDBAvailable) {
+      await saveBrowserTopicState(next, digests, previousDigests);
+    } else {
+      const store = await readCliStore();
+      store.sync = next;
+      store.digests = digests;
+      await writeCliStore(store);
+    }
+    return next;
+  });
+}
+
+export async function getTopicGeneration(topic: string): Promise<string | null> {
+  const sync = await getSyncState();
+  return sync.topics.includes(topic) ? sync.topicGenerations?.[topic] || "legacy" : null;
 }
 
 export async function getApiKey(): Promise<string> {
@@ -203,16 +264,20 @@ export async function getDigests(): Promise<Record<string, TopicDigest>> {
   return store.digests;
 }
 
-export async function saveTopicDigest(digest: TopicDigest): Promise<void> {
-  const digests = await getDigests();
-  digests[digest.topic] = digest;
-  if (isIndexedDBAvailable) {
-    await idbSet("radarDigests", digests);
-    return;
-  }
-  const store = await readCliStore();
-  store.digests = digests;
-  await writeCliStore(store);
+export async function saveTopicDigest(digest: TopicDigest, generation?: string | null): Promise<boolean> {
+  return withTopicWrite(async () => {
+    if (generation !== undefined && (generation === null || generation !== await getTopicGeneration(digest.topic))) {
+      return false;
+    }
+    const digests = { ...await getDigests(), [digest.topic]: digest };
+    if (isIndexedDBAvailable) await idbSet("radarDigests", digests);
+    else {
+      const store = await readCliStore();
+      store.digests = digests;
+      await writeCliStore(store);
+    }
+    return true;
+  });
 }
 
 export async function getSeenVideoIds(): Promise<Set<string>> {

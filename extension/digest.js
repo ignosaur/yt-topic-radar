@@ -448,6 +448,7 @@ async function loadState() {
   }
 }
 async function saveSync(nextSync) {
+  let previousSync = state.sync;
   state.sync = nextSync;
   try {
     let res = await fetch("/api/sync", {
@@ -457,12 +458,20 @@ async function saveSync(nextSync) {
     });
     if (!res.ok) {
       let data = await res.json().catch(() => ({}));
-      await loadState(), showToast(data.error === "upgrade_required" ? "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts." : data.error || "Save failed", !0);
+      state.sync = previousSync, await loadState(), showToast({
+        upgrade_required: "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts.",
+        stale_state: "Topics changed in another tab. Refreshed; please try again."
+      }[data.error] || data.error || "Save failed", !0);
       return;
     }
+    let data = await res.json();
+    state.sync = data.sync;
+    for (let topic of previousSync.topics)
+      if (!state.sync.topics.includes(topic))
+        delete state.digests[topic];
     setOfflineMode(!1);
   } catch (err) {
-    if (isServerUnreachable(err))
+    if (state.sync = previousSync, isServerUnreachable(err))
       setOfflineMode(!0), serverUnreachableToast("save");
     else
       showToast(err?.message || "Save failed", !0);
@@ -599,6 +608,8 @@ function renderSidebar() {
   }
 }
 function renderAll() {
+  if (!state.sync.topics.includes(activeTopic))
+    activeTopic = state.sync.topics[0] || "";
   renderSidebar(), renderMainDigest(), ensureOfflineBanner();
 }
 function canAddMoreTopics() {
@@ -1005,9 +1016,9 @@ var init_digest = __esm(() => {
           showToast(`"${data.topic || "Another topic"}" is already scanning — please wait`, !0);
           return;
         }
-        throw Error(data.error || "Scan failed");
+        throw Error(data.error === "topic_changed" ? "Topic changed while scanning. Please scan it again." : data.error || "Scan failed");
       }
-      if (setOfflineMode(!1), state.digests[topic] = data.digest, data.metrics)
+      if (setOfflineMode(!1), await loadState(), data.metrics)
         state.metrics = data.metrics;
       resetRssUnread();
       let summarized = data.digest.videos.length, requested = Number(data.digest.requestedCount || summarized), skipped = Array.isArray(data.digest.skippedVideos) ? data.digest.skippedVideos.length : 0;
@@ -49995,6 +50006,7 @@ var MONETIZATION_CONFIG = {
   "Finance & Markets": ["Macroeconomics", "Value Investing", "Crypto Infrastructure"],
   "Science & Health": ["Longevity & Science", "Space & Physics"]
 }, DEFAULT_SYNC = {
+  revision: 0,
   topics: ["AI Coding Agents", "Local LLMs"],
   pinnedChannels: [],
   minDurationSec: 180,
@@ -50045,17 +50057,68 @@ async function getSyncState() {
   let store = await readCliStore();
   return { ...DEFAULT_SYNC, ...store.sync };
 }
-async function saveSyncState(state) {
-  if (isBrowserExtension) {
-    await globalThis.chrome.storage.sync.set({ radarSync: state });
-    return;
+var topicWriteChain = Promise.resolve();
+function withTopicWrite(write) {
+  let locks = globalThis.navigator?.locks;
+  if (isIndexedDBAvailable && locks)
+    return locks.request("radar-topic-write", write);
+  let next = topicWriteChain.then(write);
+  return topicWriteChain = next.catch(() => {}), next;
+}
+
+class StaleSyncError extends Error {
+  constructor() {
+    super("stale_state");
   }
-  if (isIndexedDBAvailable) {
-    await set("radarSync", state);
-    return;
+}
+async function saveBrowserTopicState(next, digests, previousDigests) {
+  await set("radarDigests", digests);
+  try {
+    if (isBrowserExtension)
+      await globalThis.chrome.storage.sync.set({ radarSync: next });
+    else
+      await set("radarSync", next);
+  } catch (saveError) {
+    try {
+      await set("radarDigests", previousDigests);
+    } catch (restoreError) {
+      throw AggregateError([saveError, restoreError], "Failed to save topics and restore digests");
+    }
+    throw saveError;
   }
-  let store = await readCliStore();
-  store.sync = state, await writeCliStore(store);
+}
+async function saveSyncState(state, expectedRevision) {
+  return withTopicWrite(async () => {
+    let current = await getSyncState();
+    if (expectedRevision !== void 0 && expectedRevision !== (current.revision || 0))
+      throw new StaleSyncError;
+    let removed = new Set(current.topics.filter((topic) => !state.topics.includes(topic))), topicMeta = { ...state.topicMeta || {} };
+    for (let topic of removed)
+      delete topicMeta[topic];
+    let next = {
+      ...state,
+      revision: (current.revision || 0) + 1,
+      topicGenerations: Object.fromEntries(state.topics.map((topic) => [
+        topic,
+        current.topics.includes(topic) ? current.topicGenerations?.[topic] || "legacy" : crypto.randomUUID()
+      ])),
+      topicMeta,
+      pinnedChannels: state.pinnedChannels.filter((channel) => !removed.has(channel.topic))
+    }, previousDigests = await getDigests(), digests = { ...previousDigests };
+    for (let topic of removed)
+      delete digests[topic];
+    if (isIndexedDBAvailable)
+      await saveBrowserTopicState(next, digests, previousDigests);
+    else {
+      let store = await readCliStore();
+      store.sync = next, store.digests = digests, await writeCliStore(store);
+    }
+    return next;
+  });
+}
+async function getTopicGeneration(topic) {
+  let sync = await getSyncState();
+  return sync.topics.includes(topic) ? sync.topicGenerations?.[topic] || "legacy" : null;
 }
 async function getApiKey() {
   if (isBrowserExtension)
@@ -50085,14 +50148,19 @@ async function getDigests() {
     return await get("radarDigests") || {};
   return (await readCliStore()).digests;
 }
-async function saveTopicDigest(digest) {
-  let digests = await getDigests();
-  if (digests[digest.topic] = digest, isIndexedDBAvailable) {
-    await set("radarDigests", digests);
-    return;
-  }
-  let store = await readCliStore();
-  store.digests = digests, await writeCliStore(store);
+async function saveTopicDigest(digest, generation) {
+  return withTopicWrite(async () => {
+    if (generation !== void 0 && (generation === null || generation !== await getTopicGeneration(digest.topic)))
+      return !1;
+    let digests = { ...await getDigests(), [digest.topic]: digest };
+    if (isIndexedDBAvailable)
+      await set("radarDigests", digests);
+    else {
+      let store = await readCliStore();
+      store.digests = digests, await writeCliStore(store);
+    }
+    return !0;
+  });
 }
 async function getSeenVideoIds() {
   if (isIndexedDBAvailable) {
@@ -50269,6 +50337,7 @@ function createEngineDeps() {
     summarize: summarizeVideo,
     synthesize: synthesizeTopicDigest,
     saveDigest: saveTopicDigest,
+    getTopicGeneration,
     markSeen: (videoId) => markVideoSeen(videoId),
     updateMetrics,
     ...createChromeScanLock()
@@ -50284,7 +50353,7 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
   if (!await deps.acquireLock(topic))
     return { status: 409, body: { error: "scan_in_progress" } };
   try {
-    let candidates, slopFilteredCount;
+    let generation = await deps.getTopicGeneration?.(topic), candidates, slopFilteredCount;
     try {
       let filtered = await deps.search(topic, requestedCount);
       candidates = filtered.rankedPool, slopFilteredCount = filtered.slopFilteredCount;
@@ -50332,7 +50401,8 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
       requestedCount,
       ...skipped.length > 0 ? { skippedVideos: skipped } : {}
     };
-    await deps.saveDigest(digest);
+    if (await deps.saveDigest(digest, generation) === !1)
+      return { status: 409, body: { error: "topic_changed" } };
     let metrics = await deps.updateMetrics({
       scansCompleted: 1,
       videosSummarized: summaries.length,
@@ -50400,7 +50470,14 @@ async function handleApi(input, init) {
       topicMeta: body.topicMeta && typeof body.topicMeta === "object" ? body.topicMeta : current.topicMeta || {},
       telemetryOptIn: typeof body.telemetryOptIn === "boolean" ? body.telemetryOptIn : current.telemetryOptIn ?? !1
     };
-    return await saveSyncState(next), json2({ ok: !0, sync: next });
+    try {
+      let sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : void 0);
+      return json2({ ok: !0, sync });
+    } catch (err) {
+      if (err instanceof StaleSyncError)
+        return json2({ error: "stale_state" }, 409);
+      throw err;
+    }
   }
   if (path === "/api/key" && method === "POST") {
     let body = JSON.parse(await readBodyText(init) || "{}");

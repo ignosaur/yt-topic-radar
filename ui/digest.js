@@ -326,6 +326,7 @@ async function loadState() {
 }
 
 async function saveSync(nextSync) {
+  const previousSync = state.sync;
   state.sync = nextSync;
   try {
     const res = await fetch("/api/sync", {
@@ -335,17 +336,23 @@ async function saveSync(nextSync) {
     });
     if (!res.ok) {
       const data = await res.json().catch(() => ({}));
+      state.sync = previousSync;
       await loadState();
-      showToast(
-        data.error === "upgrade_required"
-          ? "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts."
-          : data.error || "Save failed",
-        true
-      );
+      const messages = {
+        upgrade_required: "Free limit (5 topics) reached — upgrade for unlimited topics + RSS auto-updates and alerts.",
+        stale_state: "Topics changed in another tab. Refreshed; please try again.",
+      };
+      showToast(messages[data.error] || data.error || "Save failed", true);
       return;
+    }
+    const data = await res.json();
+    state.sync = data.sync;
+    for (const topic of previousSync.topics) {
+      if (!state.sync.topics.includes(topic)) delete state.digests[topic];
     }
     setOfflineMode(false);
   } catch (err) {
+    state.sync = previousSync;
     if (isServerUnreachable(err)) {
       setOfflineMode(true);
       serverUnreachableToast("save");
@@ -572,6 +579,7 @@ function renderSidebar() {
 }
 
 function renderAll() {
+  if (!state.sync.topics.includes(activeTopic)) activeTopic = state.sync.topics[0] || "";
   renderSidebar();
   renderMainDigest();
   ensureOfflineBanner();
@@ -1127,10 +1135,13 @@ el("btnScanTopic").addEventListener("click", async () => {
         );
         return;
       }
-      throw new Error(data.error || "Scan failed");
+      throw new Error(data.error === "topic_changed"
+        ? "Topic changed while scanning. Please scan it again."
+        : data.error || "Scan failed");
     }
     setOfflineMode(false);
-    state.digests[topic] = data.digest;
+    // Reload authoritative state: deletion/re-addition may have happened during this scan.
+    await loadState();
     if (data.metrics) state.metrics = data.metrics;
     resetRssUnread();
     const summarized = data.digest.videos.length;

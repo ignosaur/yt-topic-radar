@@ -12,6 +12,7 @@ import {
   importBackupJson,
   saveApiKey,
   saveSyncState,
+  StaleSyncError,
   updateMetrics,
   type SyncState,
 } from "../lib/storage";
@@ -83,8 +84,13 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
           : current.telemetryOptIn ?? false,
     };
     // Pro flag off: no topic cap.
-    await saveSyncState(next);
-    return json({ ok: true, sync: next });
+    try {
+      const sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : undefined);
+      return json({ ok: true, sync });
+    } catch (err) {
+      if (err instanceof StaleSyncError) return json({ error: "stale_state" }, 409);
+      throw err;
+    }
   }
 
   if (path === "/api/key" && method === "POST") {

@@ -13,10 +13,12 @@ import {
 import {
   getSyncState,
   saveSyncState,
+  StaleSyncError,
   getApiKey,
   saveApiKey,
   getDigests,
   saveTopicDigest,
+  getTopicGeneration,
   getMetrics,
   updateMetrics,
   getEntitlements,
@@ -75,6 +77,7 @@ async function runScan(
   maxVideos: number,
   apiKey: string
 ): Promise<{ status: number; body: unknown }> {
+  const generation = await getTopicGeneration(topic);
   let candidates: VideoCandidate[];
   let slopFilteredCount: number;
   try {
@@ -128,7 +131,9 @@ async function runScan(
     requestedCount: maxVideos,
     ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
   };
-  await saveTopicDigest(digest);
+  if (!await saveTopicDigest(digest, generation)) {
+    return { status: 409, body: { error: "topic_changed" } };
+  }
 
   const metrics = await updateMetrics({
     scansCompleted: 1,
@@ -238,8 +243,13 @@ const server = Bun.serve({
       ) {
         return json({ error: "upgrade_required" }, 403);
       }
-      await saveSyncState(next);
-      return json({ ok: true, sync: next });
+      try {
+        const sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : undefined);
+        return json({ ok: true, sync });
+      } catch (err) {
+        if (err instanceof StaleSyncError) return json({ error: "stale_state" }, 409);
+        throw err;
+      }
     }
 
     // API: Set Pro entitlement (manual unlock, Phase 4; real licence in Phase 5)
