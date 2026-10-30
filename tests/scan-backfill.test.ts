@@ -44,7 +44,7 @@ test("backfills a failed candidate to reach the requested count, in rank order",
   );
   expect(results).toEqual(["a", "c", "d"]);
   expect(skipped.map((s) => s.videoId)).toEqual(["b"]);
-  expect(skipped[0]!.reason).toBe("boom");
+  expect(skipped[0]!.reason).toBe("Video processing failed");
   expect(skipped[0]!.title).toBe("Title b");
   expect(calls).toEqual(["a", "b", "c", "d"]);
 });
@@ -80,7 +80,7 @@ test("no failures → exactly requested attempts and no skips", async () => {
   expect(calls).toEqual(["a", "b", "c"]);
 });
 
-test("truncates the failure reason to 200 chars", async () => {
+test("does not persist raw failure reasons", async () => {
   const { skipped } = await collectWithBackfill(
     pool(["a", "b"]),
     1,
@@ -89,5 +89,20 @@ test("truncates the failure reason to 200 chars", async () => {
     }
   );
   expect(skipped.length).toBeGreaterThan(0);
-  expect(skipped[0]!.reason.length).toBe(200);
+  expect(skipped[0]!.reason).toBe("Video processing failed");
+});
+
+test("stops on fatal provider failures and distinguishes exhaustion boundaries", async () => {
+  const fatal = new Error("fatal");
+  const calls: string[] = [];
+  await expect(collectWithBackfill(pool(["a", "b", "c"]), 3, async (v) => {
+    calls.push(v.videoId);
+    if (v.videoId === "b") throw fatal;
+    return v.videoId;
+  }, (error) => error === fatal)).rejects.toBe(fatal);
+  expect(calls).toEqual(["a", "b"]);
+  const exhausted = await collectWithBackfill(pool(["a", "b"]), 3, async (v) => v.videoId);
+  expect(exhausted.stopReason).toBe("pool_exhausted");
+  const capped = await collectWithBackfill(pool(["a", "b", "c", "d", "e", "f"]), 3, async () => { throw Error("fail"); });
+  expect(capped.stopReason).toBe("attempt_limit");
 });

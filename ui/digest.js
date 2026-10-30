@@ -650,12 +650,17 @@ function renderMainDigest() {
     const requested = Number(digest.requestedCount || summarized);
     if (skippedList.length === 0 && summarized === requested) return "";
     const titles = skippedList.map((s) => esc(s.title)).join(" · ");
-    const text =
+    let text =
       skippedList.length > 0
         ? summarized === requested
           ? `${summarized} of ${requested} summarized · ${skippedList.length} skipped & replaced`
           : `${summarized} of ${requested} summarized · ${skippedList.length} skipped`
         : `${summarized} of ${requested} summarized`;
+    if (summarized < requested && digest.stopReason === "pool_exhausted") {
+      text += " · no more eligible videos found";
+    } else if (summarized < requested && digest.stopReason === "attempt_limit") {
+      text += " · replacement limit reached";
+    }
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
   })();
 
@@ -1128,6 +1133,21 @@ el("btnScanTopic").addEventListener("click", async () => {
     });
     const data = await res.json();
     if (!res.ok) {
+      if (data.error === "provider_unavailable") {
+        showToast("Gemini is temporarily unavailable. Please try again later.", true);
+        return;
+      }
+      if (data.error === "quota_exhausted" || data.error === "rate_limited") {
+        const retry = Number(data.retryAfterSeconds);
+        const retryText = Number.isFinite(retry) && retry > 0
+          ? ` Try again in ${Math.ceil(retry)} seconds.`
+          : " Please try again later.";
+        const reason = data.error === "quota_exhausted"
+          ? "Gemini quota exhausted."
+          : "Gemini is rate limiting requests.";
+        showToast(`${reason}${retryText} Your previous digest is unchanged.`, true);
+        return;
+      }
       if (data.error === "scan_in_progress") {
         showToast(
           `"${data.topic || "Another topic"}" is already scanning — please wait`,

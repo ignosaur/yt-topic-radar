@@ -10,6 +10,7 @@ import {
   synthesizeTopicDigest,
   type TopicDigest,
 } from "./lib/summarizer";
+import { ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "./lib/provider-errors";
 import {
   getSyncState,
   saveSyncState,
@@ -92,17 +93,19 @@ async function runScan(
     };
   }
   let secondsSavedDelta = 0;
+  const seenVideoIds: string[] = [];
 
-  const { results: summaries, skipped } = await collectWithBackfill(
+  const { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(
     candidates,
     maxVideos,
     async (v) => {
       const t = await fetchTimestampedTranscript(v.videoId);
       const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
       secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
-      await markVideoSeen(v.videoId);
+      seenVideoIds.push(v.videoId);
       return summary;
-    }
+    },
+    (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError
   );
 
   for (const s of skipped) {
@@ -129,6 +132,9 @@ async function runScan(
     suggestedSubtopics: synthesis.suggestedSubtopics,
     videos: summaries,
     requestedCount: maxVideos,
+    attemptedCount,
+    candidatePoolCount: candidates.length,
+    ...(stopReason ? { stopReason } : {}),
     ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
   };
   if (!await saveTopicDigest(digest, generation)) {
@@ -141,6 +147,11 @@ async function runScan(
     slopVideosFiltered: slopFilteredCount,
     secondsSaved: secondsSavedDelta,
   });
+
+  for (const videoId of seenVideoIds) {
+    try { await markVideoSeen(videoId); }
+    catch { console.warn(`[scan] failed to mark video seen`); }
+  }
 
   console.log(
     `[scan] topic="${topic}" requested=${maxVideos} summarized=${summaries.length} skipped=${skipped.length}`
@@ -329,7 +340,9 @@ const server = Bun.serve({
           }
         }
       } catch (err: any) {
-        return json({ error: String(err?.message || err) }, 500);
+        if (err instanceof ProviderAvailabilityError) return json(providerErrorResponse(err), 429);
+        if (err instanceof ProviderFailureError) return json(providerErrorResponse(err), 502);
+        return json({ error: "Scan failed. Please retry." }, 500);
       }
     }
 

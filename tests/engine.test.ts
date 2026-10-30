@@ -3,6 +3,7 @@ import { runStandaloneScan, type EngineDeps } from "../lib/engine";
 import type { VideoCandidate } from "../lib/youtube";
 import type { VideoSummary } from "../lib/summarizer";
 import type { UsageMetrics } from "../lib/storage";
+import { ProviderAvailabilityError, ProviderFailureError } from "../lib/provider-errors";
 
 function candidate(videoId: string, durationSec: number): VideoCandidate {
   return {
@@ -122,6 +123,88 @@ function makeHarness(overrides: Partial<EngineDeps> = {}) {
 }
 
 describe("runStandaloneScan", () => {
+  test("mixed outage and video error stops scan without saving", async () => {
+    const { generateWithFallback } = await import("../lib/summarizer");
+    let calls = 0;
+    const ai = { models: { generateContent: async () => { calls++; throw calls === 1 ? { status: 503, message: "503 unavailable" } : { status: 400, message: "invalid video" }; } } };
+    const summarize = mock(async () => await generateWithFallback(ai as any, { contents: "test" }, async () => {}) as any);
+    const h = makeHarness({ summarize: summarize as unknown as EngineDeps["summarize"] });
+    const result = await runStandaloneScan("AI Agents", 3, "key", h.deps);
+    expect(result.status).toBe(502);
+    expect((result.body as any).error).toBe("provider_unavailable");
+    expect(summarize.mock.calls.length).toBe(1);
+    expect(h.saveDigest.mock.calls.length).toBe(0);
+    expect(h.updateMetrics.mock.calls.length).toBe(0);
+    expect(h.markSeen.mock.calls.length).toBe(0);
+    expect(h.wasReleased()).toBe(true);
+  });
+  test("provider failure stops replacement and preserves state", async () => {
+    const summarize = mock(async () => { throw new ProviderFailureError(); });
+    const h = makeHarness({ summarize: summarize as unknown as EngineDeps["summarize"] });
+    const result = await runStandaloneScan("AI Agents", 3, "key", h.deps);
+    expect(result.status).toBe(502);
+    expect((result.body as any).error).toBe("provider_unavailable");
+    expect(summarize.mock.calls.length).toBe(1);
+    expect(h.saveDigest.mock.calls.length).toBe(0);
+    expect(h.updateMetrics.mock.calls.length).toBe(0);
+    expect(h.markSeen.mock.calls.length).toBe(0);
+    expect(h.wasReleased()).toBe(true);
+  });
+  test("unexpected synthesis failure is sanitized and preserves state", async () => {
+    const synthesize = mock(async () => { throw new Error("provider secret detail"); });
+    const h = makeHarness({ synthesize: synthesize as unknown as EngineDeps["synthesize"] });
+    const result = await runStandaloneScan("AI Agents", 2, "key", h.deps);
+    expect(result.status).toBe(502);
+    expect(JSON.stringify(result.body)).not.toContain("provider secret detail");
+    expect(h.saveDigest.mock.calls.length).toBe(0);
+    expect(h.updateMetrics.mock.calls.length).toBe(0);
+    expect(h.markSeen.mock.calls.length).toBe(0);
+    expect(h.wasReleased()).toBe(true);
+  });
+  for (const failure of ["first", "third", "synthesis"] as const) {
+    test(`quota failure at ${failure} preserves state and releases the lock`, async () => {
+      const videos = ["a", "b", "c", "d"].map((id) => candidate(id, 600));
+      const search = mock(async () => ({ candidates: videos.slice(0, 3), rankedPool: videos, slopFilteredCount: 0, totalEvaluated: 4 }));
+      const summarize = mock(async (_key: string, video: VideoCandidate) => {
+        if ((failure === "first" && video.videoId === "a") || (failure === "third" && video.videoId === "c")) {
+          throw new ProviderAvailabilityError("quota_exhausted");
+        }
+        return summaryFor(video);
+      });
+      const synthesize = mock(async () => {
+        if (failure === "synthesis") throw new ProviderAvailabilityError("rate_limited", 7);
+        return { crossVideoSynthesis: "cross", suggestedSubtopics: [] };
+      });
+      const h = makeHarness({ search: search as unknown as EngineDeps["search"], summarize: summarize as unknown as EngineDeps["summarize"], synthesize: synthesize as unknown as EngineDeps["synthesize"] });
+      const result = await runStandaloneScan("AI Agents", 3, "key", h.deps);
+      expect(result.status).toBe(429);
+      expect((result.body as any).error).toBe(failure === "synthesis" ? "rate_limited" : "quota_exhausted");
+      if (failure === "synthesis") expect((result.body as any).retryAfterSeconds).toBe(7);
+      expect(summarize.mock.calls.length).toBe(failure === "first" ? 1 : 3);
+      expect(h.saveDigest.mock.calls.length).toBe(0);
+      expect(h.updateMetrics.mock.calls.length).toBe(0);
+      expect(h.markSeen.mock.calls.length).toBe(0);
+      expect(h.wasReleased()).toBe(true);
+    });
+  }
+
+  test("distinguishes attempt limit from exhausted pool, including equality", async () => {
+    for (const [poolSize, expected] of [[5, "pool_exhausted"], [6, "attempt_limit"]] as const) {
+      const videos = Array.from({ length: poolSize }, (_, i) => candidate(String(i), 600));
+      const search = mock(async () => ({ candidates: videos.slice(0, 3), rankedPool: videos, slopFilteredCount: 0, totalEvaluated: poolSize }));
+      const summarize = mock(async (_key: string, video: VideoCandidate) => {
+        if (video.videoId !== "0") throw new Error("private provider detail");
+        return summaryFor(video);
+      });
+      const h = makeHarness({ search: search as unknown as EngineDeps["search"], summarize: summarize as unknown as EngineDeps["summarize"] });
+      const result = await runStandaloneScan("AI Agents", 3, "key", h.deps);
+      const digest = (result.body as any).digest;
+      expect(digest.stopReason).toBe(expected);
+      expect(digest.attemptedCount).toBe(5);
+      expect(digest.candidatePoolCount).toBe(poolSize);
+      expect(JSON.stringify(digest)).not.toContain("private provider detail");
+    }
+  });
   test("success path saves one digest, updates metrics, marks both videos seen, releases the lock", async () => {
     const h = makeHarness();
 

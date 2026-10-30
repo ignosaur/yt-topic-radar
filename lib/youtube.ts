@@ -243,8 +243,9 @@ export interface SkippedVideo {
 export async function collectWithBackfill<T>(
   rankedPool: VideoCandidate[],
   requested: number,
-  process: (v: VideoCandidate) => Promise<T>
-): Promise<{ results: T[]; skipped: SkippedVideo[] }> {
+  process: (v: VideoCandidate) => Promise<T>,
+  isFatal: (err: unknown) => boolean = () => false,
+): Promise<{ results: T[]; skipped: SkippedVideo[]; attemptedCount: number; stopReason?: "pool_exhausted" | "attempt_limit" }> {
   const results: T[] = [];
   const skipped: SkippedVideo[] = [];
   const attemptsLimit = Math.max(0, requested) + MAX_REPLACEMENTS;
@@ -255,15 +256,19 @@ export async function collectWithBackfill<T>(
     try {
       results.push(await process(v));
     } catch (err: any) {
+      if (isFatal(err)) throw err;
       skipped.push({
         videoId: v.videoId,
         title: v.title,
-        reason: String(err?.message || err).slice(0, 200),
+        reason: "Video processing failed",
       });
     }
   }
 
-  return { results, skipped };
+  const attemptedCount = results.length + skipped.length;
+  const stopReason = results.length >= requested ? undefined :
+    attemptedCount >= rankedPool.length ? "pool_exhausted" : "attempt_limit";
+  return { results, skipped, attemptedCount, ...(stopReason ? { stopReason } : {}) };
 }
 
 

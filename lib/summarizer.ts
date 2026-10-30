@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import type { SkippedVideo, TranscriptSegment, VideoCandidate } from "./youtube";
 import { formatTimestamp } from "./youtube";
+import { classifyProviderError, ProviderAvailabilityError, ProviderFailureError } from "./provider-errors";
 
 export type VideoType =
   | "tutorial"
@@ -43,6 +44,9 @@ export interface TopicDigest {
   videos: VideoSummary[];
   requestedCount?: number;
   skippedVideos?: SkippedVideo[];
+  attemptedCount?: number;
+  candidatePoolCount?: number;
+  stopReason?: "attempt_limit" | "pool_exhausted";
 }
 
 const SUMMARY_SCHEMA: Schema = {
@@ -115,11 +119,13 @@ const MODEL_CANDIDATES = [
 /**
  * Concurrency limiter + 429/503 exponential backoff + per-request timeout + automatic model fallback.
  */
-async function generateWithFallback(
+export async function generateWithFallback(
   ai: GoogleGenAI,
-  params: Omit<Parameters<GoogleGenAI["models"]["generateContent"]>[0], "model">
+  params: Omit<Parameters<GoogleGenAI["models"]["generateContent"]>[0], "model">,
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
 ) {
   let delayMs = 1500;
+  const failures: Array<ReturnType<typeof classifyProviderError> | "unavailable" | "other"> = [];
   for (let attempt = 0; attempt < MODEL_CANDIDATES.length; attempt++) {
     const model = MODEL_CANDIDATES[attempt]!;
     const ctrl = new AbortController();
@@ -135,22 +141,45 @@ async function generateWithFallback(
       });
     } catch (err: any) {
       const msg = String(err?.message || err);
+      const availability = classifyProviderError(err);
+      if (availability) {
+        failures.push(availability);
+        if (attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== undefined && availability.retryAfterSeconds <= 10) {
+          await sleep(availability.retryAfterSeconds * 1000);
+        }
+        continue;
+      }
       const isRetryable =
-        msg.includes("429") ||
+        err?.status === 503 ||
+        err?.status === 404 ||
         msg.includes("503") ||
         msg.includes("UNAVAILABLE") ||
-        msg.includes("RESOURCE_EXHAUSTED") ||
         msg.includes("404") ||
         msg.includes("aborted") ||
         msg.includes("AbortError");
-      if (attempt >= MODEL_CANDIDATES.length - 1 || !isRetryable) throw err;
-      await new Promise((r) => setTimeout(r, delayMs));
+      if (!isRetryable) {
+        if (failures.some((failure) => failure !== "unavailable")) {
+          throw new ProviderFailureError();
+        }
+        throw new Error("Gemini could not process this request.");
+      }
+      failures.push(msg.includes("404") || err?.status === 404 ? "unavailable" : "other");
+      if (attempt >= MODEL_CANDIDATES.length - 1) break;
+      await sleep(delayMs);
       delayMs *= 1.5;
     } finally {
       clearTimeout(timer);
     }
   }
-  throw new Error("All Gemini Flash model candidates failed.");
+  const relevant = failures.filter((f) => f !== "unavailable");
+  if (relevant.length > 0 && relevant.every((f) => typeof f === "object" && f !== null)) {
+    const availability = relevant as NonNullable<ReturnType<typeof classifyProviderError>>[];
+    if (availability.every((f) => f.code === availability[0]!.code)) {
+      const retryValues = availability.map((f) => f.retryAfterSeconds).filter((v): v is number => v !== undefined);
+      throw new ProviderAvailabilityError(availability[0]!.code, retryValues.length === availability.length ? Math.max(...retryValues) : undefined);
+    }
+  }
+  throw new ProviderFailureError();
 }
 
 /**

@@ -654,6 +654,10 @@ function renderMainDigest() {
     if (skippedList.length === 0 && summarized === requested)
       return "";
     let titles = skippedList.map((s) => esc(s.title)).join(" · "), text = skippedList.length > 0 ? summarized === requested ? `${summarized} of ${requested} summarized · ${skippedList.length} skipped & replaced` : `${summarized} of ${requested} summarized · ${skippedList.length} skipped` : `${summarized} of ${requested} summarized`;
+    if (summarized < requested && digest.stopReason === "pool_exhausted")
+      text += " · no more eligible videos found";
+    else if (summarized < requested && digest.stopReason === "attempt_limit")
+      text += " · replacement limit reached";
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
   })(), videosHtml = digest.videos.map((v, idx) => {
     let verdictColor = v.worthWatchingFull === "Yes" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : v.worthWatchingFull === "Skim timestamps" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-slate-700/50 text-slate-300 border-slate-600", chaptersHtml = (v.chapterBreakdown || []).map((c) => `
@@ -1012,6 +1016,15 @@ var init_digest = __esm(() => {
         body: JSON.stringify({ topic, maxVideos })
       }), data = await res.json();
       if (!res.ok) {
+        if (data.error === "provider_unavailable") {
+          showToast("Gemini is temporarily unavailable. Please try again later.", !0);
+          return;
+        }
+        if (data.error === "quota_exhausted" || data.error === "rate_limited") {
+          let retry = Number(data.retryAfterSeconds), retryText = Number.isFinite(retry) && retry > 0 ? ` Try again in ${Math.ceil(retry)} seconds.` : " Please try again later.", reason = data.error === "quota_exhausted" ? "Gemini quota exhausted." : "Gemini is rate limiting requests.";
+          showToast(`${reason}${retryText} Your previous digest is unchanged.`, !0);
+          return;
+        }
         if (data.error === "scan_in_progress") {
           showToast(`"${data.topic || "Another topic"}" is already scanning — please wait`, !0);
           return;
@@ -49739,6 +49752,46 @@ class GoogleGenAI {
   }
 }
 
+// lib/provider-errors.ts
+class ProviderAvailabilityError extends Error {
+  code;
+  retryAfterSeconds;
+  constructor(code, retryAfterSeconds) {
+    super(code === "quota_exhausted" ? "Gemini quota is exhausted. Check your quota and try again later." : "Gemini is rate limited. Please try again later.");
+    this.code = code;
+    this.retryAfterSeconds = retryAfterSeconds;
+    this.name = "ProviderAvailabilityError";
+  }
+}
+
+class ProviderFailureError extends Error {
+  code = "provider_unavailable";
+  constructor() {
+    super("Gemini is temporarily unavailable. Please try again later.");
+    this.name = "ProviderFailureError";
+  }
+}
+function providerErrorResponse(error) {
+  return {
+    error: error.code,
+    message: error.message,
+    ...error instanceof ProviderAvailabilityError && error.retryAfterSeconds !== void 0 ? { retryAfterSeconds: error.retryAfterSeconds } : {}
+  };
+}
+function classifyProviderError(error) {
+  let obj = error && typeof error === "object" ? error : {}, message = typeof obj.message === "string" ? obj.message : typeof error === "string" ? error : "", payload;
+  try {
+    payload = JSON.parse(message);
+  } catch {
+    payload = void 0;
+  }
+  let detail = payload?.error ?? payload;
+  if (Number(obj.status ?? detail?.code) !== 429 && detail?.status !== "RESOURCE_EXHAUSTED")
+    return;
+  let content = typeof detail?.message === "string" ? detail.message : message, serializedDetails = Array.isArray(detail?.details) ? JSON.stringify(detail.details) : "", daily = /\b(?:per day|daily|requests per day)\b|(?:requests_per_day|per_day|requestsperday)/i.test(`${content} ${serializedDetails}`), retryInfo = Array.isArray(detail?.details) ? detail.details.find((d) => typeof d?.retryDelay === "string")?.retryDelay : void 0, retryMatch = typeof retryInfo === "string" ? retryInfo.match(/^(\d+(?:\.\d+)?)s$/) : null, retryAfterSeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : void 0;
+  return { code: daily ? "quota_exhausted" : "rate_limited", ...retryAfterSeconds !== void 0 && Number.isFinite(retryAfterSeconds) ? { retryAfterSeconds } : {} };
+}
+
 // lib/summarizer.ts
 var SUMMARY_SCHEMA = {
   type: Type.OBJECT,
@@ -49800,8 +49853,8 @@ var SUMMARY_SCHEMA = {
   "gemini-3.5-flash",
   "gemini-flash-latest"
 ];
-async function generateWithFallback(ai, params) {
-  let delayMs = 1500;
+async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) => setTimeout(r, ms))) {
+  let delayMs = 1500, failures = [];
   for (let attempt = 0;attempt < MODEL_CANDIDATES.length; attempt++) {
     let model = MODEL_CANDIDATES[attempt], ctrl = new AbortController, timer = setTimeout(() => ctrl.abort(), 35000);
     try {
@@ -49814,15 +49867,33 @@ async function generateWithFallback(ai, params) {
         }
       });
     } catch (err) {
-      let msg = String(err?.message || err), isRetryable = msg.includes("429") || msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("RESOURCE_EXHAUSTED") || msg.includes("404") || msg.includes("aborted") || msg.includes("AbortError");
-      if (attempt >= MODEL_CANDIDATES.length - 1 || !isRetryable)
-        throw err;
-      await new Promise((r) => setTimeout(r, delayMs)), delayMs *= 1.5;
+      let msg = String(err?.message || err), availability = classifyProviderError(err);
+      if (availability) {
+        if (failures.push(availability), attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== void 0 && availability.retryAfterSeconds <= 10)
+          await sleep(availability.retryAfterSeconds * 1000);
+        continue;
+      }
+      if (!(err?.status === 503 || err?.status === 404 || msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("404") || msg.includes("aborted") || msg.includes("AbortError"))) {
+        if (failures.some((failure) => failure !== "unavailable"))
+          throw new ProviderFailureError;
+        throw Error("Gemini could not process this request.");
+      }
+      if (failures.push(msg.includes("404") || err?.status === 404 ? "unavailable" : "other"), attempt >= MODEL_CANDIDATES.length - 1)
+        break;
+      await sleep(delayMs), delayMs *= 1.5;
     } finally {
       clearTimeout(timer);
     }
   }
-  throw Error("All Gemini Flash model candidates failed.");
+  let relevant = failures.filter((f) => f !== "unavailable");
+  if (relevant.length > 0 && relevant.every((f) => typeof f === "object" && f !== null)) {
+    let availability = relevant;
+    if (availability.every((f) => f.code === availability[0].code)) {
+      let retryValues = availability.map((f) => f.retryAfterSeconds).filter((v) => v !== void 0);
+      throw new ProviderAvailabilityError(availability[0].code, retryValues.length === availability.length ? Math.max(...retryValues) : void 0);
+    }
+  }
+  throw new ProviderFailureError;
 }
 function chunkTranscriptByWindow(blocks, windowSec = 1200) {
   if (blocks.length === 0)
@@ -50375,7 +50446,9 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
         let transcript = await deps.transcript(video.videoId), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
         secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), summaries.push(summary);
       } catch (err) {
-        let reason = String(err?.message || err).slice(0, 200);
+        if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError)
+          throw err;
+        let reason = "Video could not be processed.";
         console.warn(`[scan] skipped video ${video.videoId}: ${reason}`), skipped.push({
           videoId: video.videoId,
           title: video.title,
@@ -50399,6 +50472,11 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
       suggestedSubtopics: synthesis.suggestedSubtopics,
       videos: summaries,
       requestedCount,
+      attemptedCount: summaries.length + skipped.length,
+      candidatePoolCount: candidates.length,
+      ...summaries.length < requestedCount ? {
+        stopReason: summaries.length + skipped.length >= candidates.length ? "pool_exhausted" : "attempt_limit"
+      } : {},
       ...skipped.length > 0 ? { skippedVideos: skipped } : {}
     };
     if (await deps.saveDigest(digest, generation) === !1)
@@ -50419,6 +50497,12 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
       status: 200,
       body: { ok: !0, digest, metrics, skippedVideos }
     };
+  } catch (err) {
+    if (err instanceof ProviderAvailabilityError)
+      return { status: 429, body: providerErrorResponse(err) };
+    if (err instanceof ProviderFailureError)
+      return { status: 502, body: providerErrorResponse(err) };
+    return { status: 502, body: { error: "Scan failed. Please try again." } };
   } finally {
     await deps.releaseLock();
   }

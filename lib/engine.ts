@@ -11,6 +11,7 @@ import {
   type TopicDigest,
   type VideoSummary,
 } from "./summarizer";
+import { ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "./provider-errors";
 import {
   markVideoSeen,
   saveTopicDigest,
@@ -175,7 +176,8 @@ export async function runStandaloneScan(
         seenVideoIds.push(video.videoId);
         summaries.push(summary);
       } catch (err: any) {
-        const reason = String(err?.message || err).slice(0, 200);
+        if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError) throw err;
+        const reason = "Video could not be processed.";
         console.warn(`[scan] skipped video ${video.videoId}: ${reason}`);
         skipped.push({
           videoId: video.videoId,
@@ -206,6 +208,12 @@ export async function runStandaloneScan(
       suggestedSubtopics: synthesis.suggestedSubtopics,
       videos: summaries,
       requestedCount,
+      attemptedCount: summaries.length + skipped.length,
+      candidatePoolCount: candidates.length,
+      ...(summaries.length < requestedCount ? {
+        stopReason: summaries.length + skipped.length >= candidates.length
+          ? "pool_exhausted" as const : "attempt_limit" as const,
+      } : {}),
       ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
     };
 
@@ -235,6 +243,14 @@ export async function runStandaloneScan(
       status: 200,
       body: { ok: true, digest, metrics, skippedVideos },
     };
+  } catch (err) {
+    if (err instanceof ProviderAvailabilityError) {
+      return { status: 429, body: providerErrorResponse(err) };
+    }
+    if (err instanceof ProviderFailureError) {
+      return { status: 502, body: providerErrorResponse(err) };
+    }
+    return { status: 502, body: { error: "Scan failed. Please try again." } };
   } finally {
     await deps.releaseLock();
   }
