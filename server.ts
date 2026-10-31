@@ -52,9 +52,9 @@ const ALLOWED_ORIGINS = [
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") || "";
   const allowed = ALLOWED_ORIGINS.some((re) => re.test(origin));
-  if (!allowed && origin) return {}; // unknown origin — no CORS headers
+  if (!allowed) return {}; // unknown or missing origin — no CORS headers
   return {
-    "Access-Control-Allow-Origin": origin || "*",
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers": "Content-Type",
   };
@@ -246,7 +246,7 @@ const server = Bun.serve({
         digests,
         metrics,
         entitlements,
-        monetization: MONETIZATION_CONFIG,
+        monetization: { ...MONETIZATION_CONFIG, proEnabled: true },
         starterTopics: STARTER_TOPICS,
         hasApiKey: Boolean(apiKey),
         maskedKey: apiKey ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}` : "",

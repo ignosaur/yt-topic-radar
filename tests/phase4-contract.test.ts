@@ -55,7 +55,17 @@ test("state returns freemium + entitlements, free by default", async () => {
   const data: any = await res.json();
   expect(data.monetization.mode).toBe("freemium");
   expect(data.monetization.freeTopicLimit).toBe(5);
+  expect(data.monetization.proEnabled).toBe(true);
   expect(data.entitlements).toEqual({ isPro: false });
+});
+
+test("CORS: OPTIONS never emits wildcard origin", async () => {
+  const noOrigin = await fetch(`${BASE}/api/state`, { method: "OPTIONS" });
+  expect(noOrigin.headers.get("access-control-allow-origin")).toBeNull();
+  const evil = await fetch(`${BASE}/api/state`, { method: "OPTIONS", headers: { Origin: "https://evil.example" } });
+  expect(evil.headers.get("access-control-allow-origin")).toBeNull();
+  const allowed = await fetch(`${BASE}/api/state`, { method: "OPTIONS", headers: { Origin: "http://localhost:3459" } });
+  expect(allowed.headers.get("access-control-allow-origin")).toBe("http://localhost:3459");
 });
 
 test("free: grow to 5 ok, 6th rejected 403; rss 403", async () => {

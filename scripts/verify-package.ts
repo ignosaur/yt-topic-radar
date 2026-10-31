@@ -210,6 +210,10 @@ const forbidden: Array<{ label: string; matches: (name: string) => boolean }> = 
     matches: (name) => name.split("/").some((part) => part === "_metadata"),
   },
   {
+    label: "tts-scan-utils.js",
+    matches: (name) => name.endsWith("tts-scan-utils.js"),
+  },
+  {
     label: ".DS_Store",
     matches: (name) => name.split("/").some((part) => part === ".DS_Store"),
   },
@@ -336,6 +340,9 @@ if (digestJs === undefined) {
   const found: string[] = [];
   if (localhostCount > 0) found.push(`"localhost:3456" x${localhostCount}`);
   if (hasAlarmCreate) found.push('"chrome.alarms.create"');
+  for (const token of ["proChanged", "rssUnread"]) {
+    if (digestJs.includes(token)) found.push(`"${token}"`);
+  }
   check(
     "digest.js forbidden strings",
     found.length === 0,

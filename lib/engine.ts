@@ -1,15 +1,13 @@
 import {
-  MAX_REPLACEMENTS,
+  collectWithBackfill,
   fetchTimestampedTranscript,
   searchAndFilterTopicWithStats,
-  type SkippedVideo,
   type VideoCandidate,
 } from "./youtube";
 import {
   summarizeVideo,
   synthesizeTopicDigest,
   type TopicDigest,
-  type VideoSummary,
 } from "./summarizer";
 import { ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "./provider-errors";
 import {
@@ -155,37 +153,31 @@ export async function runStandaloneScan(
       };
     }
 
-    const summaries: VideoSummary[] = [];
-    const skipped: SkippedVideo[] = [];
     const seenVideoIds: string[] = [];
     let secondsSaved = 0;
-    const attemptsLimit = Math.max(0, requestedCount) + MAX_REPLACEMENTS;
-
-    for (const video of candidates) {
-      if (summaries.length >= requestedCount) break;
-      if (summaries.length + skipped.length >= attemptsLimit) break;
-      try {
-        const transcript = await deps.transcript(video.videoId);
-        const summary = await deps.summarize(
-          apiKey,
-          video,
-          transcript.blocks,
-          transcript.chapters
-        );
-        secondsSaved += Math.max(60, (video.durationSec || 600) - 90);
-        seenVideoIds.push(video.videoId);
-        summaries.push(summary);
-      } catch (err: any) {
-        if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError) throw err;
-        const reason = "Video could not be processed.";
-        console.warn(`[scan] skipped video ${video.videoId}: ${reason}`);
-        skipped.push({
-          videoId: video.videoId,
-          title: video.title,
-          reason,
-        });
-      }
-    }
+    const { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(
+      candidates,
+      requestedCount,
+      async (video) => {
+        try {
+          const transcript = await deps.transcript(video.videoId);
+          const summary = await deps.summarize(
+            apiKey,
+            video,
+            transcript.blocks,
+            transcript.chapters
+          );
+          secondsSaved += Math.max(60, (video.durationSec || 600) - 90);
+          seenVideoIds.push(video.videoId);
+          return summary;
+        } catch (err) {
+          if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError) throw err;
+          console.warn(`[scan] skipped video ${video.videoId}: Video processing failed`);
+          throw err;
+        }
+      },
+      (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError
+    );
 
     const skippedVideos = skipped.map((s) => s.videoId);
 
@@ -208,12 +200,9 @@ export async function runStandaloneScan(
       suggestedSubtopics: synthesis.suggestedSubtopics,
       videos: summaries,
       requestedCount,
-      attemptedCount: summaries.length + skipped.length,
+      attemptedCount,
       candidatePoolCount: candidates.length,
-      ...(summaries.length < requestedCount ? {
-        stopReason: summaries.length + skipped.length >= candidates.length
-          ? "pool_exhausted" as const : "attempt_limit" as const,
-      } : {}),
+      ...(stopReason ? { stopReason } : {}),
       ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
     };
 

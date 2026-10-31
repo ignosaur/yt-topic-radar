@@ -254,6 +254,11 @@ describe("runStandaloneScan", () => {
     expect(result.status).toBe(200);
     const body = result.body as any;
     expect(body.skippedVideos).toEqual(["video-a"]);
+    expect(body.digest.skippedVideos[0]).toMatchObject({
+      videoId: "video-a",
+      title: "Title video-a",
+      reason: "Video processing failed",
+    });
     expect(body.digest.videos.map((v: VideoSummary) => v.videoId)).toEqual([
       "video-b",
     ]);

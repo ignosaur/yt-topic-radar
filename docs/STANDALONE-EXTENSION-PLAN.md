@@ -109,7 +109,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 
 **Constraints**
 - Mode chosen at build time only (Decision 2); no runtime mode switch, no localhost code path or permission in the prod build.
-- **No Pro surface ships:** no topic cap, no Pro toggle/upgrade UI, no entitlements persistence, no import clamp, no RSS/alarm/notification/badge code or permissions (flag matrix).
+- **No Pro surface is active:** no topic cap, Pro toggle/upgrade UI ships hidden via `proEnabled:false` (hidden, not removed), no entitlements persistence, no import clamp, no RSS/alarm/notification/badge code or permissions (flag matrix).
 - Gemini key stays in `chrome.storage.local` — never in `chrome.storage.sync`, backups, or entitlements.
 - `bun run ui` behaviour unchanged; dev path (`build:ext:dev`) stays fully functional throughout.
 - No new engines/frameworks; no background/offscreen scanning, no resume, no hand-off.
@@ -135,7 +135,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 
 **Implementation notes (2026-10-29)**
 - `ui/fetch-bind.ts` is the first import of the entry; `ui/digest.js` dispatches `/api/*` to `window.__RADAR_STANDALONE__` when set, otherwise keeps the localhost prefix.
-- Pro/RSS code is removed at build time, not merely hidden: `chrome.alarms.create`, `proChanged`, `rssUnread` and `localhost:3456` each appear **0 times** in the prod bundle.
+- Pro UI is hidden via `proEnabled:false`, not removed at build time; RSS tokens `chrome.alarms.create`, `proChanged`, `rssUnread` and `localhost:3456` each appear **0 times** in the prod bundle.
 - Extract/import route uses `importBackupJson(raw, { enforceTopicLimit: false })`; the server path keeps the default clamp.
 - Zip/version packaging lives in M2 (`scripts/package-chrome.ts`, `scripts/verify-package.ts`).
 

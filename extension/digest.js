@@ -32513,6 +32513,28 @@ async function searchAndFilterTopicWithStats(topic, maxResults = 4) {
   };
 }
 var MAX_REPLACEMENTS = 2;
+async function collectWithBackfill(rankedPool, requested, process2, isFatal = () => !1) {
+  let results = [], skipped = [], attemptsLimit = Math.max(0, requested) + MAX_REPLACEMENTS;
+  for (let v of rankedPool) {
+    if (results.length >= requested)
+      break;
+    if (results.length + skipped.length >= attemptsLimit)
+      break;
+    try {
+      results.push(await process2(v));
+    } catch (err) {
+      if (isFatal(err))
+        throw err;
+      skipped.push({
+        videoId: v.videoId,
+        title: v.title,
+        reason: "Video processing failed"
+      });
+    }
+  }
+  let attemptedCount = results.length + skipped.length, stopReason = results.length >= requested ? void 0 : attemptedCount >= rankedPool.length ? "pool_exhausted" : "attempt_limit";
+  return { results, skipped, attemptedCount, ...stopReason ? { stopReason } : {} };
+}
 async function fetchTimestampedTranscript(videoId, windowSec = 45) {
   let yt = await getInnertube(), fullDescription = "", chapters = [];
   try {
@@ -49853,12 +49875,28 @@ var SUMMARY_SCHEMA = {
   "gemini-3.5-flash",
   "gemini-flash-latest"
 ];
-async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) => setTimeout(r, ms))) {
-  let delayMs = 1500, failures = [];
+function providerOutcome(err, availability) {
+  if (availability)
+    return availability.code;
+  let status = Number(err?.status);
+  if (Number.isInteger(status) && status >= 100 && status <= 599)
+    return `status_${status}`;
+  let msg = String(err?.message || err);
+  if (msg.includes("aborted") || msg.includes("AbortError"))
+    return "abort";
+  return "error";
+}
+function safeLog(log, msg) {
+  try {
+    log(msg);
+  } catch {}
+}
+async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) => setTimeout(r, ms)), log = (msg) => console.log(msg)) {
+  let delayMs = 1500, chainStartedAt = Date.now(), failures = [];
   for (let attempt = 0;attempt < MODEL_CANDIDATES.length; attempt++) {
-    let model = MODEL_CANDIDATES[attempt], ctrl = new AbortController, timer = setTimeout(() => ctrl.abort(), 35000);
+    let model = MODEL_CANDIDATES[attempt], ctrl = new AbortController, timer = setTimeout(() => ctrl.abort(), 35000), attemptStartedAt = Date.now();
     try {
-      return await ai.models.generateContent({
+      let res = await ai.models.generateContent({
         ...params,
         model,
         config: {
@@ -49866,16 +49904,17 @@ async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) 
           abortSignal: ctrl.signal
         }
       });
+      return safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=ok`), res;
     } catch (err) {
       let msg = String(err?.message || err), availability = classifyProviderError(err);
-      if (availability) {
+      if (safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability)}`), availability) {
         if (failures.push(availability), attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== void 0 && availability.retryAfterSeconds <= 10)
           await sleep(availability.retryAfterSeconds * 1000);
         continue;
       }
       if (!(err?.status === 503 || err?.status === 404 || msg.includes("503") || msg.includes("UNAVAILABLE") || msg.includes("404") || msg.includes("aborted") || msg.includes("AbortError"))) {
         if (failures.some((failure) => failure !== "unavailable"))
-          throw new ProviderFailureError;
+          throw safeLog(log, `[provider] chain_exhausted outcome=provider_unavailable attempts=${attempt + 1} totalMs=${Date.now() - chainStartedAt}`), new ProviderFailureError;
         throw Error("Gemini could not process this request.");
       }
       if (failures.push(msg.includes("404") || err?.status === 404 ? "unavailable" : "other"), attempt >= MODEL_CANDIDATES.length - 1)
@@ -49890,10 +49929,10 @@ async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) 
     let availability = relevant;
     if (availability.every((f) => f.code === availability[0].code)) {
       let retryValues = availability.map((f) => f.retryAfterSeconds).filter((v) => v !== void 0);
-      throw new ProviderAvailabilityError(availability[0].code, retryValues.length === availability.length ? Math.max(...retryValues) : void 0);
+      throw safeLog(log, `[provider] chain_exhausted outcome=${availability[0].code} attempts=${failures.length} totalMs=${Date.now() - chainStartedAt}`), new ProviderAvailabilityError(availability[0].code, retryValues.length === availability.length ? Math.max(...retryValues) : void 0);
     }
   }
-  throw new ProviderFailureError;
+  throw safeLog(log, `[provider] chain_exhausted outcome=provider_unavailable attempts=${failures.length} totalMs=${Date.now() - chainStartedAt}`), new ProviderFailureError;
 }
 function chunkTranscriptByWindow(blocks, windowSec = 1200) {
   if (blocks.length === 0)
@@ -50436,26 +50475,12 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
         }
       };
     }
-    let summaries = [], skipped = [], seenVideoIds = [], secondsSaved = 0, attemptsLimit = Math.max(0, requestedCount) + MAX_REPLACEMENTS;
-    for (let video of candidates) {
-      if (summaries.length >= requestedCount)
-        break;
-      if (summaries.length + skipped.length >= attemptsLimit)
-        break;
-      try {
-        let transcript = await deps.transcript(video.videoId), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
-        secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), summaries.push(summary);
-      } catch (err) {
-        if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError)
-          throw err;
-        let reason = "Video could not be processed.";
-        console.warn(`[scan] skipped video ${video.videoId}: ${reason}`), skipped.push({
-          videoId: video.videoId,
-          title: video.title,
-          reason
-        });
-      }
-    }
+    let seenVideoIds = [], secondsSaved = 0, { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(candidates, requestedCount, async (video) => {
+      let transcript = await deps.transcript(video.videoId), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
+      return secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), summary;
+    }, (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError);
+    for (let s of skipped)
+      console.warn(`[scan] skipped video ${s.videoId}: ${s.reason}`);
     let skippedVideos = skipped.map((s) => s.videoId);
     if (summaries.length === 0)
       return {
@@ -50472,11 +50497,9 @@ async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineD
       suggestedSubtopics: synthesis.suggestedSubtopics,
       videos: summaries,
       requestedCount,
-      attemptedCount: summaries.length + skipped.length,
+      attemptedCount,
       candidatePoolCount: candidates.length,
-      ...summaries.length < requestedCount ? {
-        stopReason: summaries.length + skipped.length >= candidates.length ? "pool_exhausted" : "attempt_limit"
-      } : {},
+      ...stopReason ? { stopReason } : {},
       ...skipped.length > 0 ? { skippedVideos: skipped } : {}
     };
     if (await deps.saveDigest(digest, generation) === !1)
