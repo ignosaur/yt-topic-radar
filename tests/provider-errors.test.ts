@@ -62,6 +62,32 @@ test("outage followed by a nonretryable failure is fatal, but missing model alon
   catch (error) { expect(error).not.toBeInstanceOf(ProviderFailureError); }
 });
 
+test("fallback telemetry logs sanitized model outcomes without provider messages", async () => {
+  const s = stub([quota, quota, quota, quota]);
+  const logs: string[] = [];
+  await expect(generateWithFallback(s.ai, params, async () => {}, (m) => logs.push(m))).rejects.toBeInstanceOf(ProviderAvailabilityError);
+  expect(logs.some((m) => m.includes("[provider]") && m.includes("outcome=quota_exhausted"))).toBe(true);
+  expect(logs.some((m) => m.includes("chain_exhausted outcome=quota_exhausted"))).toBe(true);
+  expect(logs.join("\n")).not.toContain("requests per day");
+  const ok = stub([quota]);
+  const okLogs: string[] = [];
+  await generateWithFallback(ok.ai, params, async () => {}, (m) => okLogs.push(m));
+  expect(okLogs.some((m) => m.includes("outcome=ok"))).toBe(true);
+});
+
+test("throwing telemetry observer never changes provider behavior", async () => {
+  const throwing = () => { throw new Error("sink failed"); };
+  const okStub = stub([]);
+  expect((await generateWithFallback(okStub.ai, params, async () => {}, throwing)).text).toBe("ok");
+  expect(okStub.calls()).toBe(1);
+  const failStub = stub([quota, quota, quota, quota]);
+  await expect(generateWithFallback(failStub.ai, params, async () => {}, throwing)).rejects.toBeInstanceOf(ProviderAvailabilityError);
+  expect(failStub.calls()).toBe(4);
+  const genericStub = stub([{ status: 400, message: "invalid video" }]);
+  await expect(generateWithFallback(genericStub.ai, params, async () => {}, throwing)).rejects.toThrow("Gemini could not process this request.");
+  expect(genericStub.calls()).toBe(1);
+});
+
 test("an initial nonretryable video failure remains replaceable", async () => {
   const s = stub([{ status: 400, message: "invalid video" }]);
   try { await generateWithFallback(s.ai, params, async () => {}); throw new Error("expected failure"); }

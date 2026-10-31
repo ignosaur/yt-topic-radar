@@ -117,21 +117,40 @@ const MODEL_CANDIDATES = [
 ];
 
 /**
- * Concurrency limiter + 429/503 exponential backoff + per-request timeout + automatic model fallback.
+ * 429/503 exponential backoff + per-request timeout + automatic model fallback.
+ * (Chunk calls are sequential; no concurrency limiter exists here.)
  */
+/** Sanitized per-attempt outcome for telemetry: never raw provider messages. */
+function providerOutcome(err: any, availability: ReturnType<typeof classifyProviderError>): string {
+  if (availability) return availability.code;
+  const status = Number(err?.status);
+  if (Number.isInteger(status) && status >= 100 && status <= 599) return `status_${status}`;
+  const msg = String(err?.message || err);
+  if (msg.includes("aborted") || msg.includes("AbortError")) return "abort";
+  return "error";
+}
+
+/** Telemetry must never change provider behavior: a throwing log sink is swallowed. */
+function safeLog(log: (msg: string) => void, msg: string): void {
+  try { log(msg); } catch { /* ignore telemetry sink failures */ }
+}
+
 export async function generateWithFallback(
   ai: GoogleGenAI,
   params: Omit<Parameters<GoogleGenAI["models"]["generateContent"]>[0], "model">,
-  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms))
+  sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
+  log: (msg: string) => void = (msg) => console.log(msg)
 ) {
   let delayMs = 1500;
+  const chainStartedAt = Date.now();
   const failures: Array<ReturnType<typeof classifyProviderError> | "unavailable" | "other"> = [];
   for (let attempt = 0; attempt < MODEL_CANDIDATES.length; attempt++) {
     const model = MODEL_CANDIDATES[attempt]!;
     const ctrl = new AbortController();
     const timer = setTimeout(() => ctrl.abort(), 35000);
+    const attemptStartedAt = Date.now();
     try {
-      return await ai.models.generateContent({
+      const res = await ai.models.generateContent({
         ...params,
         model,
         config: {
@@ -139,9 +158,12 @@ export async function generateWithFallback(
           abortSignal: ctrl.signal,
         },
       });
+      safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=ok`);
+      return res;
     } catch (err: any) {
       const msg = String(err?.message || err);
       const availability = classifyProviderError(err);
+      safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability)}`);
       if (availability) {
         failures.push(availability);
         if (attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== undefined && availability.retryAfterSeconds <= 10) {
@@ -159,6 +181,7 @@ export async function generateWithFallback(
         msg.includes("AbortError");
       if (!isRetryable) {
         if (failures.some((failure) => failure !== "unavailable")) {
+          safeLog(log, `[provider] chain_exhausted outcome=provider_unavailable attempts=${attempt + 1} totalMs=${Date.now() - chainStartedAt}`);
           throw new ProviderFailureError();
         }
         throw new Error("Gemini could not process this request.");
@@ -176,9 +199,11 @@ export async function generateWithFallback(
     const availability = relevant as NonNullable<ReturnType<typeof classifyProviderError>>[];
     if (availability.every((f) => f.code === availability[0]!.code)) {
       const retryValues = availability.map((f) => f.retryAfterSeconds).filter((v): v is number => v !== undefined);
+      safeLog(log, `[provider] chain_exhausted outcome=${availability[0]!.code} attempts=${failures.length} totalMs=${Date.now() - chainStartedAt}`);
       throw new ProviderAvailabilityError(availability[0]!.code, retryValues.length === availability.length ? Math.max(...retryValues) : undefined);
     }
   }
+  safeLog(log, `[provider] chain_exhausted outcome=provider_unavailable attempts=${failures.length} totalMs=${Date.now() - chainStartedAt}`);
   throw new ProviderFailureError();
 }
 

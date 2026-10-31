@@ -67,6 +67,20 @@ function corsHeaders(req: Request): Record<string, string> {
 // its digest write is idempotent per topic.
 const SCAN_STALE_MS = 10 * 60 * 1000;
 
+/** Strip log-injection characters from free-form topics and bound length. */
+function sanitizeTopic(topic: unknown, max = 80): string {
+  return String(topic ?? "").replace(/[\r\n]+/g, " ").slice(0, max);
+}
+
+/** Allowlisted scan error category: typed provider codes or *Error names, else "error". */
+function scanErrorLabel(err: any): string {
+  if (err instanceof ProviderAvailabilityError) return err.code;
+  if (err instanceof ProviderFailureError) return err.code;
+  const name = typeof err?.name === "string" ? err.name : "";
+  if (/^[A-Za-z]{1,30}Error$/.test(name)) return name;
+  return "error";
+}
+
 let activeScan: { topic: string; since: number } | null = null;
 
 // The scan pipeline itself (search -> filter -> transcript -> summarize ->
@@ -78,6 +92,8 @@ async function runScan(
   maxVideos: number,
   apiKey: string
 ): Promise<{ status: number; body: unknown }> {
+  const scanStartedAt = Date.now();
+  console.log(`[scan] start topic="${sanitizeTopic(topic)}" requested=${maxVideos}`);
   const generation = await getTopicGeneration(topic);
   let candidates: VideoCandidate[];
   let slopFilteredCount: number;
@@ -85,8 +101,9 @@ async function runScan(
     const filtered = await searchAndFilterTopicWithStats(topic, maxVideos);
     candidates = filtered.rankedPool;
     slopFilteredCount = filtered.slopFilteredCount;
+    console.log(`[scan] search topic="${sanitizeTopic(topic)}" pool=${candidates.length} slopFiltered=${slopFilteredCount} durationMs=${Date.now() - scanStartedAt}`);
   } catch (err: any) {
-    console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`);
+    console.warn(`[scan] search failed for "${sanitizeTopic(topic)}": ${sanitizeTopic(err?.message || err, 200)}`);
     return {
       status: 502,
       body: { error: "YouTube search temporarily failed for this topic. Please retry." },
@@ -99,11 +116,18 @@ async function runScan(
     candidates,
     maxVideos,
     async (v) => {
-      const t = await fetchTimestampedTranscript(v.videoId);
-      const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
-      secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
-      seenVideoIds.push(v.videoId);
-      return summary;
+      const videoStartedAt = Date.now();
+      try {
+        const t = await fetchTimestampedTranscript(v.videoId);
+        const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
+        console.log(`[scan] video=${v.videoId} summarized transcriptBlocks=${t.blocks.length} durationMs=${Date.now() - videoStartedAt}`);
+        secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
+        seenVideoIds.push(v.videoId);
+        return summary;
+      } catch (err: any) {
+        console.log(`[scan] video=${v.videoId} failed durationMs=${Date.now() - videoStartedAt} error=${scanErrorLabel(err)}`);
+        throw err;
+      }
     },
     (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError
   );
@@ -124,7 +148,9 @@ async function runScan(
     };
   }
 
+  console.log(`[scan] synthesis start topic="${sanitizeTopic(topic)}" summaries=${summaries.length} elapsedMs=${Date.now() - scanStartedAt}`);
   const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
+  console.log(`[scan] synthesis done topic="${sanitizeTopic(topic)}" elapsedMs=${Date.now() - scanStartedAt}`);
   const digest: TopicDigest = {
     topic,
     generatedAt: new Date().toISOString(),
@@ -154,7 +180,7 @@ async function runScan(
   }
 
   console.log(
-    `[scan] topic="${topic}" requested=${maxVideos} summarized=${summaries.length} skipped=${skipped.length}`
+    `[scan] topic="${sanitizeTopic(topic)}" requested=${maxVideos} summarized=${summaries.length} skipped=${skipped.length}`
   );
 
   return { status: 200, body: { ok: true, digest, metrics, skippedVideos } };
@@ -340,6 +366,7 @@ const server = Bun.serve({
           }
         }
       } catch (err: any) {
+        console.log(`[scan] request failed error=${scanErrorLabel(err)}`);
         if (err instanceof ProviderAvailabilityError) return json(providerErrorResponse(err), 429);
         if (err instanceof ProviderFailureError) return json(providerErrorResponse(err), 502);
         return json({ error: "Scan failed. Please retry." }, 500);
