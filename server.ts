@@ -3,6 +3,7 @@ import {
   fetchTimestampedTranscript,
   fetchChannelRssVideos,
   collectWithBackfill,
+  indexByVideoId,
   type VideoCandidate,
 } from "./lib/youtube";
 import {
@@ -84,12 +85,20 @@ function corsHeaders(req: Request): Record<string, string> {
   };
 }
 
-// A hung network hop (search/transcript fetches carry no AbortSignal) could
+// A hung network hop (Innertube search/getInfo are bounded-but-not-cancelled;
+// direct player/caption/RSS fetches carry AbortSignal + 30 s deadline) could
 // otherwise hold the lock forever, answering 409 to every future scan until a
 // server restart. After this window the lock is treated as stale and the new
-// scan supersedes it; the hung request may still finish in the background and
-// its digest write is idempotent per topic.
+// scan supersedes it; the superseded scan's digest/metrics/seen writes are
+// guarded off in runScan so it can never overwrite its successor.
 const SCAN_STALE_MS = 10 * 60 * 1000;
+
+/** Scan-level deadline override: opts param first, RADAR_SCAN_TIMEOUT_MS env for tests. */
+function scanTimeoutMs(optsTimeout?: number): number {
+  if (optsTimeout !== undefined) return optsTimeout;
+  const fromEnv = Number(process.env.RADAR_SCAN_TIMEOUT_MS);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : SCAN_STALE_MS;
+}
 
 /** Strip log-injection characters from free-form topics and bound length. */
 function sanitizeTopic(topic: unknown, max = 80): string {
@@ -114,11 +123,46 @@ let activeScan: { topic: string; since: number } | null = null;
 async function runScan(
   topic: string,
   maxVideos: number,
-  apiKey: string
+  apiKey: string,
+  opts: { scanTimeoutMs?: number } = {}
 ): Promise<{ status: number; body: unknown }> {
   const scanStartedAt = Date.now();
   console.log(`[scan] start topic="${sanitizeTopic(topic)}" requested=${maxVideos}`);
+  // Item 7: scan-level deadline. On timeout the scan settles promptly and frees
+  // the lock (route handler finally); the superseded body below keeps running
+  // but its guarded writes become no-ops so it never overwrites a successor.
+  let superseded = false;
+  const scanSignal = new AbortController();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const onTimeout: Promise<{ status: number; body: unknown }> = new Promise((resolve) => {
+    timer = setTimeout(
+      () => {
+        superseded = true;
+        scanSignal.abort();
+        resolve({ status: 504, body: { error: "scan_timeout" } });
+      },
+      scanTimeoutMs(opts.scanTimeoutMs)
+    );
+    (timer as unknown as { unref?: () => void })?.unref?.();
+  });
+  try {
+    return await Promise.race([executeScan(), onTimeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+
+  async function executeScan(): Promise<{ status: number; body: unknown }> {
   const generation = await getTopicGeneration(topic);
+  // Item 10: per-topic reuse only — summaries stored in this topic's previous
+  // digest (read-only; never a cross-topic cache). A failed read degrades to
+  // a full scan instead of failing the whole scan.
+  let previous: TopicDigest | null = null;
+  try {
+    previous = (await getDigests())[topic] ?? null;
+  } catch {
+    previous = null;
+  }
+  const reusable = indexByVideoId(previous?.videos);
   let candidates: VideoCandidate[];
   let slopFilteredCount: number;
   try {
@@ -134,6 +178,7 @@ async function runScan(
     };
   }
   let secondsSavedDelta = 0;
+  let freshCount = 0;
   const seenVideoIds: string[] = [];
 
   const { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(
@@ -141,12 +186,15 @@ async function runScan(
     maxVideos,
     async (v) => {
       const videoStartedAt = Date.now();
+      const reused = reusable.get(v.videoId);
+      if (reused) return reused;
       try {
-        const t = await fetchTimestampedTranscript(v.videoId);
+        const t = await fetchTimestampedTranscript(v.videoId, undefined, { signal: scanSignal.signal });
         const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
         console.log(`[scan] video=${v.videoId} summarized transcriptBlocks=${t.blocks.length} durationMs=${Date.now() - videoStartedAt}`);
         secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
         seenVideoIds.push(v.videoId);
+        freshCount++;
         return summary;
       } catch (err: any) {
         console.log(`[scan] video=${v.videoId} failed durationMs=${Date.now() - videoStartedAt} error=${scanErrorLabel(err)}`);
@@ -172,8 +220,23 @@ async function runScan(
     };
   }
 
-  console.log(`[scan] synthesis start topic="${sanitizeTopic(topic)}" summaries=${summaries.length} elapsedMs=${Date.now() - scanStartedAt}`);
-  const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
+  // Item 10: identical selection (same ids in order, all reused) keeps the
+  // previous synthesis with no Gemini call.
+  const prevIds = (previous?.videos ?? []).map((v) => v.videoId);
+  const identical =
+    previous !== null &&
+    freshCount === 0 &&
+    summaries.length === prevIds.length &&
+    summaries.every((s, i) => s.videoId === prevIds[i]);
+  // Item 7: a timed-out scan spends no Gemini synthesis call either.
+  if (superseded) return { status: 504, body: { error: "scan_timeout" } };
+  console.log(`[scan] synthesis start topic="${sanitizeTopic(topic)}" summaries=${summaries.length} reused=${summaries.length - freshCount} elapsedMs=${Date.now() - scanStartedAt}`);
+  const synthesis = identical
+    ? {
+        crossVideoSynthesis: previous!.crossVideoSynthesis,
+        suggestedSubtopics: previous!.suggestedSubtopics,
+      }
+    : await synthesizeTopicDigest(apiKey, topic, summaries);
   console.log(`[scan] synthesis done topic="${sanitizeTopic(topic)}" elapsedMs=${Date.now() - scanStartedAt}`);
   const digest: TopicDigest = {
     topic,
@@ -187,13 +250,17 @@ async function runScan(
     ...(stopReason ? { stopReason } : {}),
     ...(skipped.length > 0 ? { skippedVideos: skipped } : {}),
   };
+  // Item 7: a superseded scan performs no digest, metrics, or seen writes.
+  if (superseded) return { status: 504, body: { error: "scan_timeout" } };
   if (!await saveTopicDigest(digest, generation)) {
     return { status: 409, body: { error: "topic_changed" } };
   }
 
+  // Fully-reused scans still count the scan but never double-count
+  // videosSummarized/secondsSaved for reused videos.
   const metrics = await updateMetrics({
     scansCompleted: 1,
-    videosSummarized: summaries.length,
+    videosSummarized: freshCount,
     slopVideosFiltered: slopFilteredCount,
     secondsSaved: secondsSavedDelta,
   });
@@ -208,6 +275,7 @@ async function runScan(
   );
 
   return { status: 200, body: { ok: true, digest, metrics, skippedVideos } };
+  }
 }
 
 const server = Bun.serve({

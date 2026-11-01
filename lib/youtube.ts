@@ -52,8 +52,60 @@ export interface TranscriptSegment {
 const CLICKBAIT_RE =
   /\b(SHOCKING|DESTROYED|IT'S OVER|YOU WON'T BELIEVE|INSANE|EXPOSED|RIP|DEAD\?!|EMERGENCY)\b/i;
 
+/**
+ * Default deadline for direct YouTube fetches (player POST, caption XML, RSS).
+ * Injectable per call via FetchDeadlineOpts.timeoutMs so tests never wait this long.
+ */
+export const DEFAULT_FETCH_TIMEOUT_MS = 30_000;
+
+export interface FetchDeadlineOpts {
+  /** Aborts the fetch early when the owning scan is superseded/times out. */
+  signal?: AbortSignal;
+  /** Deadline for this fetch; defaults to DEFAULT_FETCH_TIMEOUT_MS. */
+  timeoutMs?: number;
+  /** Test seam for the fetch implementation. */
+  fetchImpl?: (input: string, init?: RequestInit) => Promise<Response>;
+}
+
+/** Direct fetch with an AbortSignal + deadline. Timer is unref'd so scans never hold the loop open. */
+export async function fetchWithDeadline(
+  url: string,
+  init: RequestInit = {},
+  opts: FetchDeadlineOpts = {}
+): Promise<Response> {
+  const impl = opts.fetchImpl ?? fetch;
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS);
+  (timer as unknown as { unref?: () => void })?.unref?.();
+  const external = opts.signal;
+  const onExternalAbort = () => ctrl.abort();
+  if (external) {
+    if (external.aborted) ctrl.abort();
+    else external.addEventListener("abort", onExternalAbort, { once: true });
+  }
+  try {
+    return await impl(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer);
+    external?.removeEventListener?.("abort", onExternalAbort);
+  }
+}
+
+/** Index stored summaries by videoId for per-topic reuse (item 10). */
+export function indexByVideoId<T extends { videoId: string }>(
+  items: readonly T[] | undefined
+): Map<string, T> {
+  const map = new Map<string, T>();
+  for (const item of items ?? []) map.set(item.videoId, item);
+  return map;
+}
+
 let ytPromise: Promise<Innertube> | null = null;
 
+// shortcut: youtubei.js search/getInfo take no per-call AbortSignal — cancellation
+// only exists via a session-level custom `fetch`, which the shared singleton cannot
+// scope per scan. These calls are bounded-but-not-cancelled; upgrade to a per-scan
+// Innertube session with a signal-wired fetch if hangs are observed here.
 export function getInnertube(): Promise<Innertube> {
   if (!ytPromise) {
     ytPromise = Innertube.create({
@@ -278,7 +330,8 @@ export async function collectWithBackfill<T>(
  */
 export async function fetchTimestampedTranscript(
   videoId: string,
-  windowSec = 45
+  windowSec = 45,
+  opts: FetchDeadlineOpts = {}
 ): Promise<{
   blocks: TranscriptSegment[];
   fullDescription: string;
@@ -305,7 +358,7 @@ export async function fetchTimestampedTranscript(
       }
     }
 
-    const transcriptRes = await fetch(
+    const transcriptRes = await fetchWithDeadline(
       "https://www.youtube.com/youtubei/v1/player?prettyPrint=false",
       {
         method: "POST",
@@ -320,7 +373,8 @@ export async function fetchTimestampedTranscript(
             },
           },
         }),
-      }
+      },
+      opts
     );
     const playerData = (await transcriptRes.json()) as any;
     const tracks: any[] =
@@ -332,7 +386,7 @@ export async function fetchTimestampedTranscript(
 
     const blocks: TranscriptSegment[] = [];
     if (enTrack?.baseUrl) {
-      const xml = await (await fetch(enTrack.baseUrl)).text();
+      const xml = await (await fetchWithDeadline(enTrack.baseUrl, {}, opts)).text();
       const pMatches = [...xml.matchAll(/<p\s+t="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)];
       let currentStart = -1;
       let buffer: string[] = [];
@@ -384,10 +438,11 @@ export async function fetchTimestampedTranscript(
  * Poll a YouTube channel's native RSS feed (zero API quota).
  */
 export async function fetchChannelRssVideos(
-  channelId: string
+  channelId: string,
+  opts: FetchDeadlineOpts = {}
 ): Promise<{ videoId: string; title: string; published: string; url: string }[]> {
   const url = `https://www.youtube.com/feeds/videos.xml?channel_id=${encodeURIComponent(channelId)}`;
-  const res = await fetch(url);
+  const res = await fetchWithDeadline(url, {}, opts);
   if (!res.ok) return [];
   const xml = await res.text();
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)];
