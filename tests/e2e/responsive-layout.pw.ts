@@ -102,8 +102,10 @@ test.describe("360×800 mobile layout", () => {
       .evaluate((el) => el.classList.contains("sidebar-open"));
     expect(openClass).toBe(true);
 
-    // Click backdrop to close
-    await page.locator("#sidebarBackdrop").click({ force: true });
+    // Click the exposed backdrop strip (drawer is min(85vw,20rem) wide at
+    // z-30 above the z-20 backdrop, so the backdrop center is covered —
+    // a real tap can only land on the visible strip right of the drawer).
+    await page.locator("#sidebarBackdrop").click({ position: { x: 340, y: 400 } });
 
     const closedClass = await page
       .locator("#topicsSidebar")

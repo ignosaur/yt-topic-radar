@@ -627,7 +627,7 @@ function renderMainDigest() {
     el("lastScannedBadge").textContent = "Scanning YouTube & extracting insights...", container.innerHTML = `
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center space-y-3 animate-pulse">
         <div class="text-3xl">\uD83D\uDEF0️</div>
-        <div class="text-lg font-semibold text-white">Scanning YouTube for "${activeTopic}"...</div>
+        <div class="text-lg font-semibold text-white">Scanning YouTube for "${esc(activeTopic)}"...</div>
         <p class="text-sm text-slate-400 max-w-md mx-auto">
           Searching recent uploads → Filtering out clickbait & shorts → Extracting timed transcripts → Running structured Gemini breakdown...
         </p>
@@ -639,7 +639,7 @@ function renderMainDigest() {
     el("lastScannedBadge").textContent = "Not scanned yet", container.innerHTML = `
       <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-10 text-center space-y-3">
         <div class="text-3xl">\uD83D\uDD2D</div>
-        <div class="text-lg font-semibold text-slate-200">No digest generated for "${activeTopic}" yet</div>
+        <div class="text-lg font-semibold text-slate-200">No digest generated for "${esc(activeTopic)}" yet</div>
         <p class="text-sm text-slate-400 max-w-md mx-auto">
           Click <b>Scan Topic Now</b> in the top-right to discover the highest-signal YouTube videos and extract their complete timestamped breakdown.
         </p>
@@ -663,19 +663,19 @@ function renderMainDigest() {
     let verdictColor = v.worthWatchingFull === "Yes" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : v.worthWatchingFull === "Skim timestamps" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-slate-700/50 text-slate-300 border-slate-600", chaptersHtml = (v.chapterBreakdown || []).map((c) => `
           <div class="border-l-2 border-slate-700 pl-3 py-1 space-y-1">
             <div class="flex items-center gap-2">
-              <button data-vid="${v.videoId}" data-vtitle="${encodeURIComponent(v.title)}" data-ts="${c.timestamp}" class="font-mono text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2 py-0.5 rounded border border-red-500/30 transition">
-                ▶ [${c.timestamp}]
+              <button data-vid="${esc(v.videoId)}" data-vtitle="${encodeURIComponent(v.title)}" data-ts="${esc(c.timestamp)}" class="font-mono text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2 py-0.5 rounded border border-red-500/30 transition">
+                ▶ [${esc(c.timestamp)}]
               </button>
-              <span class="font-semibold text-slate-200 text-sm">${c.sectionTitle}</span>
+              <span class="font-semibold text-slate-200 text-sm">${esc(c.sectionTitle)}</span>
             </div>
             <ul class="list-disc list-inside text-slate-300 text-sm space-y-0.5 pl-1">
-              ${(c.keyPoints || []).map((kp) => `<li>${kp}</li>`).join("")}
+              ${(c.keyPoints || []).map((kp) => `<li>${esc(kp)}</li>`).join("")}
             </ul>
           </div>`).join(""), detailsHtml = (v.typeSpecificDetails || []).map((d) => `
           <div class="bg-slate-950/70 border border-slate-800/80 rounded-lg p-3">
-            <div class="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">${d.label}</div>
+            <div class="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">${esc(d.label)}</div>
             <ul class="list-disc list-inside text-xs text-slate-300 space-y-1">
-              ${(d.items || []).map((item) => `<li>${item}</li>`).join("")}
+              ${(d.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}
             </ul>
           </div>`).join("");
     return `
@@ -683,12 +683,12 @@ function renderMainDigest() {
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="flex flex-wrap items-center gap-2 text-xs">
-                <span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase">${v.videoType.replace("_", " ")}</span>
-                <span class="px-2 py-0.5 rounded border ${verdictColor} font-medium">Verdict: ${v.worthWatchingFull}</span>
-                <span class="text-slate-400">Signal ${v.signalScore}/100 • ${v.durationText}</span>
+                <span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase">${esc(String(v.videoType).replace("_", " "))}</span>
+                <span class="px-2 py-0.5 rounded border ${verdictColor} font-medium">Verdict: ${esc(v.worthWatchingFull)}</span>
+                <span class="text-slate-400">Signal ${esc(v.signalScore)}/100 • ${esc(v.durationText)}</span>
               </div>
               <h3 class="text-lg font-bold text-white leading-snug">
-                <a href="${esc(v.url)}" target="_blank" class="hover:text-red-400 transition">${idx + 1}. ${esc(v.title)}</a>
+                ${/^https?:\/\//i.test(String(v.url ?? "")) ? `<a href="${esc(v.url)}" target="_blank" class="hover:text-red-400 transition">${idx + 1}. ${esc(v.title)}</a>` : `<span>${idx + 1}. ${esc(v.title)}</span>`}
               </h3>
               <div class="text-xs text-slate-400">Channel: <span class="text-slate-200 font-medium">${esc(v.channelName)}</span></div>
             </div>
@@ -731,7 +731,7 @@ function renderMainDigest() {
         <button id="btnReadSynthesis" class="text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 px-2.5 py-1 rounded border border-indigo-500/30">\uD83D\uDD0A Read Synthesis</button>
       </div>
       ${skipNote}
-      <p class="text-sm text-slate-200 leading-relaxed">${digest.crossVideoSynthesis}</p>
+      <p class="text-sm text-slate-200 leading-relaxed">${esc(digest.crossVideoSynthesis)}</p>
       ${subtopicsHtml ? `<div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
                <span class="text-xs text-slate-400">AI Suggested Sub-topics:</span>
                ${subtopicsHtml}
@@ -842,29 +842,31 @@ async function speakText(text) {
   }, window.speechSynthesis.speak(utter), showToast("\uD83D\uDD0A Reading aloud... (click again to restart)");
 }
 function openSidePanelPlayer(videoId, title, startSec, videoObj) {
-  el("videoSidePanel").classList.remove("hidden"), el("sidePanelTitle").textContent = title, el("ytPlayerIframe").src = `https://www.youtube.com/embed/${videoId}?start=${startSec}&autoplay=1`, syncYouTubeWatchTab(videoId, startSec);
-  let notes = el("sidePanelNotes"), watchLinkHtml = `<a id="sidePanelYtWatchLink" href="https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${startSec}s" target="_blank" rel="noopener noreferrer" class="inline-block text-xs text-indigo-300 hover:underline">↗ Open on YouTube at ${formatTimestampFromSec(startSec)}</a>`;
+  el("videoSidePanel").classList.remove("hidden"), el("sidePanelTitle").textContent = title;
+  let safeVid = encodeURIComponent(videoId), startNum = Number(startSec) || 0;
+  el("ytPlayerIframe").src = `https://www.youtube.com/embed/${safeVid}?start=${startNum}&autoplay=1`, syncYouTubeWatchTab(videoId, startNum);
+  let notes = el("sidePanelNotes"), watchLinkHtml = `<a id="sidePanelYtWatchLink" href="https://www.youtube.com/watch?v=${safeVid}&t=${startNum}s" target="_blank" rel="noopener noreferrer" class="inline-block text-xs text-indigo-300 hover:underline">↗ Open on YouTube at ${esc(formatTimestampFromSec(startNum))}</a>`;
   if (videoObj)
     notes.innerHTML = `
       ${watchLinkHtml}
       <div class="text-xs font-semibold uppercase text-red-400">Docked Summary Notes</div>
-      <p class="text-xs text-slate-300">${videoObj.coreThesis}</p>
+      <p class="text-xs text-slate-300">${esc(videoObj.coreThesis)}</p>
       <div class="space-y-2 pt-2">
         ${(videoObj.chapterBreakdown || []).map((c) => `
           <div class="p-2 rounded bg-slate-950 border border-slate-800">
-            <button data-jump="${parseTimestampToSec(c.timestamp)}" class="font-mono text-xs text-red-400 hover:underline">[${c.timestamp}] ${c.sectionTitle}</button>
+            <button data-jump="${parseTimestampToSec(c.timestamp)}" class="font-mono text-xs text-red-400 hover:underline">[${esc(c.timestamp)}] ${esc(c.sectionTitle)}</button>
             <ul class="list-disc list-inside text-xs text-slate-300 mt-1 space-y-0.5">
-              ${c.keyPoints.map((k) => `<li>${k}</li>`).join("")}
+              ${c.keyPoints.map((k) => `<li>${esc(k)}</li>`).join("")}
             </ul>
           </div>`).join("")}
       </div>
     `, notes.querySelectorAll("[data-jump]").forEach((b) => {
       b.addEventListener("click", () => {
         let s = Number(b.getAttribute("data-jump")) || 0;
-        recordMetricEvent("timestampClick"), el("ytPlayerIframe").src = `https://www.youtube.com/embed/${videoId}?start=${s}&autoplay=1`;
+        recordMetricEvent("timestampClick"), el("ytPlayerIframe").src = `https://www.youtube.com/embed/${safeVid}?start=${s}&autoplay=1`;
         let watchLink = el("sidePanelYtWatchLink");
         if (watchLink)
-          watchLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${s}s`, watchLink.textContent = `↗ Open on YouTube at ${formatTimestampFromSec(s)}`;
+          watchLink.href = `https://www.youtube.com/watch?v=${safeVid}&t=${s}s`, watchLink.textContent = `↗ Open on YouTube at ${formatTimestampFromSec(s)}`;
         syncYouTubeWatchTab(videoId, s);
       });
     });
@@ -32403,7 +32405,29 @@ try {
 } catch {
   console.warn("[youtubei.js] setParserErrorHandler unavailable; parser warnings unsuppressed.");
 }
-var CLICKBAIT_RE = /\b(SHOCKING|DESTROYED|IT'S OVER|YOU WON'T BELIEVE|INSANE|EXPOSED|RIP|DEAD\?!|EMERGENCY)\b/i, ytPromise = null;
+var CLICKBAIT_RE = /\b(SHOCKING|DESTROYED|IT'S OVER|YOU WON'T BELIEVE|INSANE|EXPOSED|RIP|DEAD\?!|EMERGENCY)\b/i, DEFAULT_FETCH_TIMEOUT_MS = 30000;
+async function fetchWithDeadline(url, init = {}, opts = {}) {
+  let impl = opts.fetchImpl ?? fetch, ctrl = new AbortController, timer = setTimeout(() => ctrl.abort(), opts.timeoutMs ?? DEFAULT_FETCH_TIMEOUT_MS);
+  timer?.unref?.();
+  let external = opts.signal, onExternalAbort = () => ctrl.abort();
+  if (external)
+    if (external.aborted)
+      ctrl.abort();
+    else
+      external.addEventListener("abort", onExternalAbort, { once: !0 });
+  try {
+    return await impl(url, { ...init, signal: ctrl.signal });
+  } finally {
+    clearTimeout(timer), external?.removeEventListener?.("abort", onExternalAbort);
+  }
+}
+function indexByVideoId(items) {
+  let map = /* @__PURE__ */ new Map;
+  for (let item of items ?? [])
+    map.set(item.videoId, item);
+  return map;
+}
+var ytPromise = null;
 function getInnertube() {
   if (!ytPromise)
     ytPromise = Innertube.create({
@@ -32535,7 +32559,7 @@ async function collectWithBackfill(rankedPool, requested, process2, isFatal = ()
   let attemptedCount = results.length + skipped.length, stopReason = results.length >= requested ? void 0 : attemptedCount >= rankedPool.length ? "pool_exhausted" : "attempt_limit";
   return { results, skipped, attemptedCount, ...stopReason ? { stopReason } : {} };
 }
-async function fetchTimestampedTranscript(videoId, windowSec = 45) {
+async function fetchTimestampedTranscript(videoId, windowSec = 45, opts = {}) {
   let yt = await getInnertube(), fullDescription = "", chapters = [];
   try {
     fullDescription = (await yt.getInfo(videoId)).secondary_info?.description?.toString?.() || "";
@@ -32551,7 +32575,7 @@ async function fetchTimestampedTranscript(videoId, windowSec = 45) {
         });
       }
     }
-    let tracks = (await (await fetch("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
+    let tracks = (await (await fetchWithDeadline("https://www.youtube.com/youtubei/v1/player?prettyPrint=false", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -32564,9 +32588,9 @@ async function fetchTimestampedTranscript(videoId, windowSec = 45) {
           }
         }
       })
-    })).json())?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [], enTrack = tracks.find((t) => t.languageCode === "en") || tracks.find((t) => String(t.languageCode || "").startsWith("en")) || tracks[0], blocks = [];
+    }, opts)).json())?.captions?.playerCaptionsTracklistRenderer?.captionTracks || [], enTrack = tracks.find((t) => t.languageCode === "en") || tracks.find((t) => String(t.languageCode || "").startsWith("en")) || tracks[0], blocks = [];
     if (enTrack?.baseUrl) {
-      let pMatches = [...(await (await fetch(enTrack.baseUrl)).text()).matchAll(/<p\s+t="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)], currentStart = -1, buffer = [];
+      let pMatches = [...(await (await fetchWithDeadline(enTrack.baseUrl, {}, opts)).text()).matchAll(/<p\s+t="(\d+)"[^>]*>([\s\S]*?)<\/p>/g)], currentStart = -1, buffer = [];
       for (let m of pMatches) {
         let startMs = Number(m[1] || 0), startSec = Math.floor(startMs / 1000), text = (m[2] || "").replace(/<[^>]+>/g, "").replace(/&#39;/g, "'").replace(/&quot;/g, '"').replace(/&amp;/g, "&").replace(/\s+/g, " ").trim();
         if (!text)
@@ -50130,14 +50154,98 @@ var MONETIZATION_CONFIG = {
   timestampClicks: 0,
   ttsPlays: 0,
   backupsExported: 0
-}, isBrowserExtension = typeof globalThis < "u" && typeof globalThis.chrome < "u" && Boolean(globalThis.chrome?.storage), isIndexedDBAvailable = typeof globalThis < "u" && typeof indexedDB < "u", CLI_STORE_PATH = ".local-radar-store.json", cliStoreCache = null, cliWriteChain = Promise.resolve();
+}, isBrowserExtension = typeof globalThis < "u" && typeof globalThis.chrome < "u" && Boolean(globalThis.chrome?.storage), isIndexedDBAvailable = typeof globalThis < "u" && typeof indexedDB < "u", CLI_STORE_PATH = ".local-radar-store.json";
+
+class BackupValidationError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = "BackupValidationError";
+  }
+}
+
+class StoreLockedError extends Error {
+  constructor(owner) {
+    super(`store_locked: store is in use by another process${owner ? ` (pid ${owner})` : ""}`);
+    this.name = "StoreLockedError";
+  }
+}
+
+class CorruptStoreError extends Error {
+  constructor(path) {
+    super(`store_corrupt: ${path} contains invalid JSON and was left unchanged`);
+    this.name = "CorruptStoreError";
+  }
+}
+var cliStoreCache = null, cliWriteChain = Promise.resolve(), cliStoreLockHeld = !1, cliStoreLockReleaseInstalled = !1, cliLockSyncFs = null;
+function installCliStoreLockRelease() {
+  if (cliStoreLockReleaseInstalled)
+    return;
+  if (typeof process > "u" || typeof process.once !== "function")
+    return;
+  cliStoreLockReleaseInstalled = !0, process.once("exit", () => {
+    cliStoreLockHeld = !1;
+    try {
+      let fs = cliLockSyncFs;
+      if (!fs)
+        return;
+      let lockPath = `${CLI_STORE_PATH}.lock`;
+      if (fs.readFileSync(lockPath, "utf8").trim() !== String(process.pid))
+        return;
+      fs.unlinkSync(lockPath);
+    } catch {}
+  });
+}
+async function ensureCliStoreLock() {
+  if (cliStoreLockHeld)
+    return;
+  if (typeof process > "u" || typeof process.pid !== "number")
+    return;
+  let fs = await import("node:fs/promises"), lockPath = `${CLI_STORE_PATH}.lock`, mine = String(process.pid), claim = () => fs.writeFile(lockPath, mine, { flag: "wx", mode: 384 });
+  try {
+    await claim(), cliStoreLockHeld = !0;
+    try {
+      cliLockSyncFs = await import("node:fs");
+    } catch {}
+    installCliStoreLockRelease();
+    return;
+  } catch (err) {
+    if (err?.code !== "EEXIST")
+      throw err;
+  }
+  let owner = await fs.readFile(lockPath, "utf8").catch(() => ""), pid = Number(owner.trim()), alive = !0;
+  if (!Number.isFinite(pid) || pid <= 0)
+    alive = !1;
+  else
+    try {
+      process.kill(pid, 0);
+    } catch (sig) {
+      alive = sig?.code !== "ESRCH";
+    }
+  if (!alive) {
+    await fs.unlink(lockPath).catch(() => {});
+    try {
+      await claim(), cliStoreLockHeld = !0;
+      try {
+        cliLockSyncFs = await import("node:fs");
+      } catch {}
+      installCliStoreLockRelease();
+      return;
+    } catch (err) {
+      if (err?.code !== "EEXIST")
+        throw err;
+    }
+  }
+  throw new StoreLockedError(owner.trim() || void 0);
+}
 async function readCliStore() {
   if (cliStoreCache)
     return cliStoreCache;
+  let fs = await import("node:fs/promises"), raw;
   try {
-    let fs = await import("node:fs/promises"), raw = await fs.readFile(CLI_STORE_PATH, "utf8");
-    return cliStoreCache = JSON.parse(raw), cliStoreCache;
-  } catch {
+    raw = await fs.readFile(CLI_STORE_PATH, "utf8");
+  } catch (err) {
+    if (err?.code !== "ENOENT")
+      throw err;
     return cliStoreCache = {
       sync: DEFAULT_SYNC,
       apiKey: "",
@@ -50146,13 +50254,20 @@ async function readCliStore() {
       metrics: { ...DEFAULT_METRICS }
     }, cliStoreCache;
   }
+  try {
+    cliStoreCache = JSON.parse(raw);
+  } catch {
+    throw cliStoreCache = null, new CorruptStoreError(CLI_STORE_PATH);
+  }
+  return await fs.chmod(CLI_STORE_PATH, 384).catch(() => {}), cliStoreCache;
 }
 async function writeCliStore(data) {
   cliStoreCache = data;
   let snapshot = JSON.stringify(data, null, 2);
-  return cliWriteChain = cliWriteChain.then(async () => {
-    let fs = await import("node:fs/promises");
-    await fs.writeFile(CLI_STORE_PATH, snapshot, "utf8");
+  return cliWriteChain = cliWriteChain.catch(() => {}).then(async () => {
+    await ensureCliStoreLock();
+    let fs = await import("node:fs/promises"), tmpPath = `${CLI_STORE_PATH}.tmp`;
+    await fs.writeFile(tmpPath, snapshot, { encoding: "utf8", mode: 384 }), await fs.chmod(tmpPath, 384).catch(() => {}), await fs.rename(tmpPath, CLI_STORE_PATH), await fs.chmod(CLI_STORE_PATH, 384).catch(() => {});
   }), cliWriteChain;
 }
 async function getSyncState() {
@@ -50354,11 +50469,108 @@ async function exportBackupJson() {
   };
   return JSON.stringify(payload, null, 2);
 }
+var BACKUP_MAX_BYTES = 10485760, MAX_TOPIC_LENGTH = 200;
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function invalid(message) {
+  throw new BackupValidationError(message);
+}
+function validateSyncValue(sync) {
+  if (!isRecord(sync))
+    invalid("sync must be an object");
+  if (!Array.isArray(sync.topics))
+    invalid("sync.topics must be an array");
+  for (let topic of sync.topics)
+    if (typeof topic !== "string" || topic.length === 0 || topic.length > MAX_TOPIC_LENGTH)
+      invalid("sync.topics must be non-empty strings (max 200 chars)");
+  if (sync.pinnedChannels !== void 0) {
+    if (!Array.isArray(sync.pinnedChannels))
+      invalid("pinnedChannels must be an array");
+    for (let ch of sync.pinnedChannels)
+      if (!isRecord(ch) || typeof ch.channelId !== "string" || typeof ch.channelName !== "string" || typeof ch.topic !== "string")
+        invalid("pinnedChannels[] must have string channelId/channelName/topic");
+  }
+  if (sync.topicMeta !== void 0) {
+    if (!isRecord(sync.topicMeta))
+      invalid("topicMeta must be an object");
+    for (let meta of Object.values(sync.topicMeta))
+      if (!isRecord(meta) || meta.starred !== void 0 && typeof meta.starred !== "boolean")
+        invalid("topicMeta values must be objects with optional boolean starred");
+  }
+  if (sync.minDurationSec !== void 0 && (typeof sync.minDurationSec !== "number" || !Number.isFinite(sync.minDurationSec) || sync.minDurationSec < 0))
+    invalid("minDurationSec must be a finite number >= 0");
+  if (sync.telemetryOptIn !== void 0 && typeof sync.telemetryOptIn !== "boolean")
+    invalid("telemetryOptIn must be a boolean");
+}
+function validateDigestRecord(digests) {
+  if (!isRecord(digests))
+    invalid("digests must be an object");
+  for (let digest of Object.values(digests)) {
+    if (!isRecord(digest) || typeof digest.topic !== "string" || typeof digest.generatedAt !== "string" || !Array.isArray(digest.videos))
+      invalid("digests[] must have string topic/generatedAt and a videos[] array");
+    for (let video of digest.videos) {
+      if (!isRecord(video) || typeof video.videoId !== "string" || typeof video.title !== "string" || typeof video.channelName !== "string" || typeof video.url !== "string")
+        invalid("digests[].videos[] must have string videoId/title/channelName/url");
+      if (video.chapterBreakdown !== void 0) {
+        if (!Array.isArray(video.chapterBreakdown))
+          invalid("chapterBreakdown must be an array");
+        for (let ch of video.chapterBreakdown)
+          if (!isRecord(ch) || typeof ch.timestamp !== "string" || typeof ch.sectionTitle !== "string" || !Array.isArray(ch.keyPoints) || !ch.keyPoints.every((k) => typeof k === "string"))
+            invalid("chapterBreakdown[] must have string timestamp/sectionTitle and string[] keyPoints");
+      }
+      if (video.typeSpecificDetails !== void 0) {
+        if (!Array.isArray(video.typeSpecificDetails))
+          invalid("typeSpecificDetails must be an array");
+        for (let d of video.typeSpecificDetails)
+          if (!isRecord(d) || typeof d.label !== "string" || !Array.isArray(d.items) || !d.items.every((i) => typeof i === "string"))
+            invalid("typeSpecificDetails[] must have string label and string[] items");
+      }
+    }
+  }
+}
+function backupByteLength(rawJson) {
+  let buf = globalThis.Buffer;
+  if (buf?.byteLength)
+    try {
+      return buf.byteLength(rawJson, "utf8");
+    } catch {}
+  try {
+    return (/* @__PURE__ */ new TextEncoder()).encode(rawJson).length;
+  } catch {
+    return rawJson.length;
+  }
+}
+function parseAndValidateBackup(rawJson) {
+  if (typeof rawJson !== "string")
+    invalid("backup must be a JSON string");
+  if (backupByteLength(rawJson) > BACKUP_MAX_BYTES)
+    invalid("backup_too_large: backup exceeds 10 MiB");
+  let parsed;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    invalid("backup is not valid JSON");
+  }
+  if (!isRecord(parsed))
+    invalid("Invalid backup file format: missing 'sync' state.");
+  let root = parsed;
+  if (!isRecord(root.sync))
+    invalid("Invalid backup file format: missing 'sync' state.");
+  if (validateSyncValue(root.sync), root.digests !== void 0)
+    validateDigestRecord(root.digests);
+  if (root.seenVideoIds !== void 0) {
+    if (!Array.isArray(root.seenVideoIds) || !root.seenVideoIds.every((id) => typeof id === "string"))
+      invalid("seenVideoIds must be a string array");
+  }
+  if (root.metrics !== void 0) {
+    if (!isRecord(root.metrics) || !Object.values(root.metrics).every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0))
+      invalid("metrics must be finite numbers >= 0");
+  }
+  return root;
+}
 async function importBackupJson(rawJson, opts = {}) {
-  let parsed = JSON.parse(rawJson);
-  if (!parsed || typeof parsed !== "object" || !parsed.sync)
-    throw Error("Invalid backup file format: missing 'sync' state.");
-  let currentSync = await getSyncState(), allTopics = [
+  let parsed = parseAndValidateBackup(rawJson), currentSync = await getSyncState(), allTopics = [
     .../* @__PURE__ */ new Set([...currentSync.topics, ...parsed.sync.topics || []])
   ], topicLimit = (opts.enforceTopicLimit === !1 ? !0 : (await getEntitlements()).isPro) ? allTopics.length : Math.max(currentSync.topics.length, MONETIZATION_CONFIG.freeTopicLimit), mergedTopics = allTopics.slice(0, topicLimit), keptTopics = new Set(mergedTopics), channelMap = /* @__PURE__ */ new Map;
   for (let ch of [
@@ -50414,13 +50626,19 @@ async function importBackupJson(rawJson, opts = {}) {
 }
 
 // lib/engine.ts
-var SCAN_LOCK_KEY = "radarScanLock", SCAN_STALE_MS = 600000;
+var SCAN_LOCK_KEY = "radarScanLock", SCAN_STALE_MS = 600000, memScanLockHeld = !1;
 function createChromeScanLock() {
   let local = globalThis.chrome?.storage?.local;
   if (!(local && typeof local.get === "function" && typeof local.set === "function" && typeof local.remove === "function"))
     return {
-      acquireLock: async () => !0,
-      releaseLock: async () => {}
+      acquireLock: async () => {
+        if (memScanLockHeld)
+          return !1;
+        return memScanLockHeld = !0, !0;
+      },
+      releaseLock: async () => {
+        memScanLockHeld = !1;
+      }
     };
   let acquired = null;
   return {
@@ -50450,6 +50668,7 @@ function createEngineDeps() {
     getTopicGeneration,
     markSeen: (videoId) => markVideoSeen(videoId),
     updateMetrics,
+    getPreviousDigest: async (topic) => (await getDigests())[topic] ?? null,
     ...createChromeScanLock()
   };
 }
@@ -50458,76 +50677,139 @@ function clampMaxVideos(maxVideos) {
   let numeric = Number(maxVideos);
   return Math.min(5, Math.max(1, numeric === 0 ? 0 : numeric || 3));
 }
-async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineDeps) {
+async function runStandaloneScan(topic, maxVideos, apiKey, deps = defaultEngineDeps, opts = {}) {
+  let webLocks = globalThis.navigator?.locks;
+  if (webLocks?.request && await webLockSupportsIfAvailable(webLocks))
+    return await webLocks.request("radar-scan", { ifAvailable: !0 }, async (held) => {
+      if (!held)
+        return { status: 409, body: { error: "scan_in_progress" } };
+      return await runStandaloneScanLocked(topic, maxVideos, apiKey, deps, opts);
+    });
+  return await runStandaloneScanLocked(topic, maxVideos, apiKey, deps, opts);
+}
+var ifAvailableSupported = !1;
+async function webLockSupportsIfAvailable(webLocks) {
+  if (ifAvailableSupported)
+    return !0;
+  let entered = !1;
+  try {
+    let probe = webLocks.request("radar-scan-probe", { ifAvailable: !0 }, async () => {
+      entered = !0;
+    });
+    await Promise.race([
+      Promise.resolve(probe).catch(() => {}),
+      new Promise((r) => setTimeout(r, 50))
+    ]);
+  } catch {
+    entered = !1;
+  }
+  if (entered)
+    ifAvailableSupported = !0;
+  return entered;
+}
+async function runStandaloneScanLocked(topic, maxVideos, apiKey, deps, opts) {
   let requestedCount = clampMaxVideos(maxVideos);
   if (!await deps.acquireLock(topic))
     return { status: 409, body: { error: "scan_in_progress" } };
+  let released = !1, release = async () => {
+    if (released)
+      return;
+    released = !0, await deps.releaseLock();
+  }, superseded = !1, scanSignal = new AbortController, timer, onTimeout = new Promise((resolve) => {
+    timer = setTimeout(() => {
+      superseded = !0, scanSignal.abort(), resolve({ status: 504, body: { error: "scan_timeout" } });
+    }, opts.scanTimeoutMs ?? SCAN_STALE_MS), timer?.unref?.();
+  });
   try {
-    let generation = await deps.getTopicGeneration?.(topic), candidates, slopFilteredCount;
-    try {
-      let filtered = await deps.search(topic, requestedCount);
-      candidates = filtered.rankedPool, slopFilteredCount = filtered.slopFilteredCount;
-    } catch (err) {
-      return console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`), {
-        status: 502,
-        body: {
-          error: "YouTube search temporarily failed for this topic. Please retry."
-        }
-      };
-    }
-    let seenVideoIds = [], secondsSaved = 0, { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(candidates, requestedCount, async (video) => {
-      let transcript = await deps.transcript(video.videoId), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
-      return secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), summary;
-    }, (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError);
-    for (let s of skipped)
-      console.warn(`[scan] skipped video ${s.videoId}: ${s.reason}`);
-    let skippedVideos = skipped.map((s) => s.videoId);
-    if (summaries.length === 0)
-      return {
-        status: 502,
-        body: {
-          error: "None of the candidate videos could be summarized. Please retry or try another topic.",
-          skippedVideos
-        }
-      };
-    let synthesis = await deps.synthesize(apiKey, topic, summaries), digest = {
-      topic,
-      generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      crossVideoSynthesis: synthesis.crossVideoSynthesis,
-      suggestedSubtopics: synthesis.suggestedSubtopics,
-      videos: summaries,
-      requestedCount,
-      attemptedCount,
-      candidatePoolCount: candidates.length,
-      ...stopReason ? { stopReason } : {},
-      ...skipped.length > 0 ? { skippedVideos: skipped } : {}
-    };
-    if (await deps.saveDigest(digest, generation) === !1)
-      return { status: 409, body: { error: "topic_changed" } };
-    let metrics = await deps.updateMetrics({
-      scansCompleted: 1,
-      videosSummarized: summaries.length,
-      slopVideosFiltered: slopFilteredCount,
-      secondsSaved
-    });
-    for (let videoId of seenVideoIds)
-      try {
-        await deps.markSeen(videoId);
-      } catch (err) {
-        console.warn(`[scan] failed to mark ${videoId} seen: ${String(err?.message || err).slice(0, 200)}`);
-      }
-    return {
-      status: 200,
-      body: { ok: !0, digest, metrics, skippedVideos }
-    };
-  } catch (err) {
-    if (err instanceof ProviderAvailabilityError)
-      return { status: 429, body: providerErrorResponse(err) };
-    if (err instanceof ProviderFailureError)
-      return { status: 502, body: providerErrorResponse(err) };
-    return { status: 502, body: { error: "Scan failed. Please try again." } };
+    return await Promise.race([executeScan(), onTimeout]);
   } finally {
-    await deps.releaseLock();
+    clearTimeout(timer), await release();
+  }
+  async function executeScan() {
+    try {
+      let generation = await deps.getTopicGeneration?.(topic), previous = null;
+      try {
+        previous = await deps.getPreviousDigest?.(topic) ?? null;
+      } catch {
+        previous = null;
+      }
+      let reusable = indexByVideoId(previous?.videos), candidates, slopFilteredCount;
+      try {
+        let filtered = await deps.search(topic, requestedCount);
+        candidates = filtered.rankedPool, slopFilteredCount = filtered.slopFilteredCount;
+      } catch (err) {
+        return console.warn(`[scan] search failed for "${topic}": ${String(err?.message || err).slice(0, 200)}`), {
+          status: 502,
+          body: {
+            error: "YouTube search temporarily failed for this topic. Please retry."
+          }
+        };
+      }
+      let seenVideoIds = [], secondsSaved = 0, freshCount = 0, { results: summaries, skipped, attemptedCount, stopReason } = await collectWithBackfill(candidates, requestedCount, async (video) => {
+        let reused = reusable.get(video.videoId);
+        if (reused)
+          return reused;
+        try {
+          let transcript = await deps.transcript(video.videoId, void 0, { signal: scanSignal.signal }), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
+          return secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), freshCount++, summary;
+        } catch (err) {
+          if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError)
+            throw err;
+          throw console.warn(`[scan] skipped video ${video.videoId}: Video processing failed`), err;
+        }
+      }, (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError), skippedVideos = skipped.map((s) => s.videoId);
+      if (summaries.length === 0)
+        return {
+          status: 502,
+          body: {
+            error: "None of the candidate videos could be summarized. Please retry or try another topic.",
+            skippedVideos
+          }
+        };
+      if (superseded)
+        return { status: 504, body: { error: "scan_timeout" } };
+      let prevIds = (previous?.videos ?? []).map((v) => v.videoId), synthesis = previous !== null && freshCount === 0 && summaries.length === prevIds.length && summaries.every((s, i) => s.videoId === prevIds[i]) ? {
+        crossVideoSynthesis: previous.crossVideoSynthesis,
+        suggestedSubtopics: previous.suggestedSubtopics
+      } : await deps.synthesize(apiKey, topic, summaries), digest = {
+        topic,
+        generatedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        crossVideoSynthesis: synthesis.crossVideoSynthesis,
+        suggestedSubtopics: synthesis.suggestedSubtopics,
+        videos: summaries,
+        requestedCount,
+        attemptedCount,
+        candidatePoolCount: candidates.length,
+        ...stopReason ? { stopReason } : {},
+        ...skipped.length > 0 ? { skippedVideos: skipped } : {}
+      };
+      if (superseded)
+        return { status: 504, body: { error: "scan_timeout" } };
+      if (await deps.saveDigest(digest, generation) === !1)
+        return { status: 409, body: { error: "topic_changed" } };
+      let metrics = await deps.updateMetrics({
+        scansCompleted: 1,
+        videosSummarized: freshCount,
+        slopVideosFiltered: slopFilteredCount,
+        secondsSaved
+      });
+      for (let videoId of seenVideoIds)
+        try {
+          await deps.markSeen(videoId);
+        } catch (err) {
+          console.warn(`[scan] failed to mark ${videoId} seen: ${String(err?.message || err).slice(0, 200)}`);
+        }
+      return {
+        status: 200,
+        body: { ok: !0, digest, metrics, skippedVideos }
+      };
+    } catch (err) {
+      if (err instanceof ProviderAvailabilityError)
+        return { status: 429, body: providerErrorResponse(err) };
+      if (err instanceof ProviderFailureError)
+        return { status: 502, body: providerErrorResponse(err) };
+      return { status: 502, body: { error: "Scan failed. Please try again." } };
+    }
   }
 }
 
@@ -50578,11 +50860,18 @@ async function handleApi(input, init) {
       telemetryOptIn: typeof body.telemetryOptIn === "boolean" ? body.telemetryOptIn : current.telemetryOptIn ?? !1
     };
     try {
+      validateSyncValue(next);
+    } catch (err) {
+      return json2({ error: String(err?.message || err) }, 400);
+    }
+    try {
       let sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : void 0);
       return json2({ ok: !0, sync });
     } catch (err) {
       if (err instanceof StaleSyncError)
         return json2({ error: "stale_state" }, 409);
+      if (err instanceof StoreLockedError)
+        return json2({ error: String(err.message) }, 409);
       throw err;
     }
   }

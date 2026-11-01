@@ -130,7 +130,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 - [x] Second scan while one is in-flight returns 409 `scan_in_progress` across two pages; lock releases on settle and failed scans commit nothing (L1–L4).
 - [x] Engine unit tests pass — 7/7 (`bun test tests/engine.test.ts`, incl. failed seen-write regression).
 - [x] Playwright extension smoke passes — 6/6 assertions (`node tests/standalone-smoke.mjs`).
-- [x] `tests/responsive-layout.spec.ts` still green — 7/7 against a `PORT=3459` server (2026-10-29).
+- [x] `tests/e2e/responsive-layout.pw.ts` still green — 7/7 against a `PORT=3459` server (2026-11-01; was `tests/responsive-layout.spec.ts` on 2026-10-29).
 - [x] Bundle size measured: **2.12 MB** (`--minify-syntax`, prod defines).
 
 **Implementation notes (2026-10-29)**
@@ -140,7 +140,7 @@ DNR header rewrite is the single point of failure; if store review rejects it, t
 - Zip/version packaging lives in M2 (`scripts/package-chrome.ts`, `scripts/verify-package.ts`).
 
 **Tests / evidence**
-`bun test tests/engine.test.ts` (7/7), `tests/phase4-contract.test.ts` (7/7), `tests/youtube-parser-guard.test.ts` (4/4), `bunx playwright test tests/responsive-layout.spec.ts` (7/7), `node tests/standalone-smoke.mjs` (6/6), plus a live standalone scan (200, 1 video, ~25s). The four manual boxes were run scripted against the prod build with a dummy key — no Gemini quota was needed, and YouTube search/transcripts supplied the in-flight window (13/13 checks: R1–R4 restart persistence, L1–L4 two-page lock, C1–C5 cancel).
+`bun test tests/engine.test.ts` (7/7), `tests/phase4-contract.test.ts` (7/7), `tests/youtube-parser-guard.test.ts` (4/4), `bunx playwright test tests/e2e/responsive-layout.pw.ts` (7/7), `node tests/standalone-smoke.mjs` (6/6), plus a live standalone scan (200, 1 video, ~25s). The four manual boxes were run scripted against the prod build with a dummy key — no Gemini quota was needed, and YouTube search/transcripts supplied the in-flight window (13/13 checks: R1–R4 restart persistence, L1–L4 two-page lock, C1–C5 cancel).
 
 **Risks / recovery**
 `chrome.storage.sync` quota is fine for topics (small payload). Final prod bundle is **2.12 MB** (spike was 2.19 MB; both above the ~1.1 MB estimate) — assess first paint. Gemini fallback latency measured at ~103s for one video (≈35s burned per dead model candidate) — progress UI must not look hung. Recovery: dev path (`bun run ui` + `build:ext:dev`) remains fully functional and untouched.

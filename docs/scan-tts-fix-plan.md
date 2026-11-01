@@ -186,12 +186,13 @@
 
 ### Verification notes (environmental, pre-existing — not caused by this change)
 
-- `bun test` (bare, whole repo) also picks up Playwright `.spec.ts` files
-  (`demo_*`, `tests/responsive-layout.spec.ts`) and fails on runner
-  incompatibility (`test.describe()` under bun). Pre-existing: `AGENTS.md`
-  documents per-file invocations and calls the demo specs throwaway. Use
-  `bun test tests/phase4-contract.test.ts`, `tests/youtube-parser-guard.test.ts`,
-  `tests/tts-scan-utils.test.ts`.
+- `bun test` (bare, whole repo) used to pick up Playwright `.spec.ts` files
+  (`demo_*`, `tests/responsive-layout.spec.ts`) and fail on runner
+  incompatibility (`test.describe()` under bun). Resolved 2026-11-01:
+  demo throwaways deleted, tracked specs moved to `tests/e2e/*.pw.ts`
+  (invisible to bun). Remaining bare-`bun test` red is only gitignored
+  throwaways, if any. Preferred: `bun test $(ls tests/*.test.ts)` plus
+  explicit `bunx playwright test tests/e2e/<name>.pw.ts`.
 - `node tests/extension-smoke.mjs` (as documented in `AGENTS.md`) crashes under
   node (`import.meta.dir` is a Bun-ism). Ran green as `bun tests/extension-smoke.mjs`:
   `page errors: []`, deep link OK, Pro alarm OK. Recommend a follow-up fix to the
