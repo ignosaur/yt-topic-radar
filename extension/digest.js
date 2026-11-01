@@ -1022,6 +1022,10 @@ var init_digest = __esm(() => {
           showToast("Gemini is temporarily unavailable. Please try again later.", !0);
           return;
         }
+        if (data.error === "gemini_api_not_enabled" || data.error === "invalid_api_key") {
+          showToast(`${data.message || "Gemini rejected this API key."} Your previous digest is unchanged.`, !0);
+          return;
+        }
         if (data.error === "quota_exhausted" || data.error === "rate_limited") {
           let retry = Number(data.retryAfterSeconds), retryText = Number.isFinite(retry) && retry > 0 ? ` Try again in ${Math.ceil(retry)} seconds.` : " Please try again later.", reason = data.error === "quota_exhausted" ? "Gemini quota exhausted." : "Gemini is rate limiting requests.";
           showToast(`${reason}${retryText} Your previous digest is unchanged.`, !0);
@@ -32436,6 +32440,21 @@ function getInnertube() {
     });
   return ytPromise;
 }
+var SEARCH_TIMEOUT_MS = 60000;
+function searchTimeoutMs() {
+  let fromEnv = Number(typeof process < "u" ? process.env.RADAR_SCAN_TIMEOUT_MS : void 0);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : SEARCH_TIMEOUT_MS;
+}
+async function searchWithTimeout(yt, topic, opts, overrideTimeoutMs) {
+  let deadlineMs = overrideTimeoutMs ?? searchTimeoutMs(), timer, timeout = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(Error("YouTube search timed out")), deadlineMs), timer?.unref?.();
+  });
+  try {
+    return await Promise.race([yt.search(topic, opts), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
 function formatTimestamp(sec) {
   let s = Math.max(0, Math.floor(sec)), hrs = Math.floor(s / 3600), mins = Math.floor(s % 3600 / 60), secs = s % 60;
   if (hrs > 0)
@@ -32493,7 +32512,7 @@ function scoreCandidate(v) {
   return Math.round(Math.max(1, Math.min(100, score)));
 }
 async function searchAndFilterTopicWithStats(topic, maxResults = 4) {
-  let search = await (await getInnertube()).search(topic, {
+  let yt = await getInnertube(), search = await searchWithTimeout(yt, topic, {
     type: "video",
     sort_by: "relevance"
   }), candidates = [], totalEvaluated = 0, droppedCount = 0;
@@ -49810,6 +49829,15 @@ class ProviderAvailabilityError extends Error {
   }
 }
 
+class ProviderConfigError extends Error {
+  code;
+  constructor(code) {
+    super(code === "gemini_api_not_enabled" ? "Gemini API is not enabled for this API key's Google Cloud project. Enable it, or use a key from Google AI Studio, then scan again." : "This Gemini API key is invalid. Paste a valid key in Settings, then scan again.");
+    this.code = code;
+    this.name = "ProviderConfigError";
+  }
+}
+
 class ProviderFailureError extends Error {
   code = "provider_unavailable";
   constructor() {
@@ -49824,7 +49852,7 @@ function providerErrorResponse(error) {
     ...error instanceof ProviderAvailabilityError && error.retryAfterSeconds !== void 0 ? { retryAfterSeconds: error.retryAfterSeconds } : {}
   };
 }
-function classifyProviderError(error) {
+function parseProviderDetail(error) {
   let obj = error && typeof error === "object" ? error : {}, message = typeof obj.message === "string" ? obj.message : typeof error === "string" ? error : "", payload;
   try {
     payload = JSON.parse(message);
@@ -49832,7 +49860,19 @@ function classifyProviderError(error) {
     payload = void 0;
   }
   let detail = payload?.error ?? payload;
-  if (Number(obj.status ?? detail?.code) !== 429 && detail?.status !== "RESOURCE_EXHAUSTED")
+  return { status: Number(obj.status ?? detail?.code), detail, message };
+}
+function classifyProviderConfigError(error) {
+  let { status, detail } = parseProviderDetail(error), reasons = Array.isArray(detail?.details) ? detail.details.map((d) => d?.reason) : [];
+  if (reasons.includes("API_KEY_INVALID"))
+    return "invalid_api_key";
+  if (status === 403 && (reasons.includes("SERVICE_DISABLED") || detail?.status === "SERVICE_DISABLED"))
+    return "gemini_api_not_enabled";
+  return;
+}
+function classifyProviderError(error) {
+  let { status, detail, message } = parseProviderDetail(error);
+  if (status !== 429 && detail?.status !== "RESOURCE_EXHAUSTED")
     return;
   let content = typeof detail?.message === "string" ? detail.message : message, serializedDetails = Array.isArray(detail?.details) ? JSON.stringify(detail.details) : "", daily = /\b(?:per day|daily|requests per day)\b|(?:requests_per_day|per_day|requestsperday)/i.test(`${content} ${serializedDetails}`), retryInfo = Array.isArray(detail?.details) ? detail.details.find((d) => typeof d?.retryDelay === "string")?.retryDelay : void 0, retryMatch = typeof retryInfo === "string" ? retryInfo.match(/^(\d+(?:\.\d+)?)s$/) : null, retryAfterSeconds = retryMatch ? Math.ceil(Number(retryMatch[1])) : void 0;
   return { code: daily ? "quota_exhausted" : "rate_limited", ...retryAfterSeconds !== void 0 && Number.isFinite(retryAfterSeconds) ? { retryAfterSeconds } : {} };
@@ -49899,7 +49939,9 @@ var SUMMARY_SCHEMA = {
   "gemini-3.5-flash",
   "gemini-flash-latest"
 ];
-function providerOutcome(err, availability) {
+function providerOutcome(err, availability, config) {
+  if (config)
+    return config;
   if (availability)
     return availability.code;
   let status = Number(err?.status);
@@ -49930,8 +49972,10 @@ async function generateWithFallback(ai, params, sleep = (ms) => new Promise((r) 
       });
       return safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=ok`), res;
     } catch (err) {
-      let msg = String(err?.message || err), availability = classifyProviderError(err);
-      if (safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability)}`), availability) {
+      let msg = String(err?.message || err), availability = classifyProviderError(err), config = classifyProviderConfigError(err);
+      if (safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability, config)}`), config)
+        throw new ProviderConfigError(config);
+      if (availability) {
         if (failures.push(availability), attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== void 0 && availability.retryAfterSeconds <= 10)
           await sleep(availability.retryAfterSeconds * 1000);
         continue;
@@ -50001,7 +50045,7 @@ ${chapterHint}Analyze this video directly and return the structured JSON summary
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA
       }
-    }), parsed = JSON.parse(res.text || "{}");
+    }), parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
   if (chunks.length === 1) {
@@ -50015,7 +50059,7 @@ ${transcriptText}`,
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA
       }
-    }), parsed = JSON.parse(res.text || "{}");
+    }), parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
   let mergedChapters = [], firstPassMeta = null;
@@ -50032,7 +50076,7 @@ ${transcriptText}`,
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA
       }
-    }), part = JSON.parse(res.text || "{}");
+    }), part = parseSummaryJson(res.text);
     if (!firstPassMeta)
       firstPassMeta = part;
     if (Array.isArray(part.chapterBreakdown))
@@ -50043,7 +50087,20 @@ ${transcriptText}`,
     chapterBreakdown: mergedChapters
   });
 }
+function parseSummaryJson(text) {
+  let parsed;
+  try {
+    parsed = JSON.parse(text || "{}");
+  } catch {
+    throw Error("Gemini returned unparseable JSON response");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    throw Error("Gemini returned invalid JSON structure");
+  return parsed;
+}
 function buildSummaryObject(video, raw) {
+  if (!raw.coreThesis && !Array.isArray(raw.chapterBreakdown))
+    throw Error("Gemini returned empty summary structure");
   return {
     videoId: video.videoId,
     title: video.title,
@@ -50090,7 +50147,7 @@ ${digestInput}`,
         required: ["crossVideoSynthesis", "suggestedSubtopics"]
       }
     }
-  }), parsed = JSON.parse(res.text || "{}");
+  }), parsed = parseSummaryJson(res.text);
   return {
     crossVideoSynthesis: parsed.crossVideoSynthesis || "",
     suggestedSubtopics: Array.isArray(parsed.suggestedSubtopics) ? parsed.suggestedSubtopics.slice(0, 4) : []
@@ -50418,7 +50475,7 @@ function deriveMetricsFromDigests(digests) {
     ...DEFAULT_METRICS,
     scansCompleted: topics.length,
     videosSummarized,
-    slopVideosFiltered: topics.length * 8,
+    slopVideosFiltered: 0,
     secondsSaved
   };
 }
@@ -50449,10 +50506,12 @@ async function saveMetrics(metrics) {
 }
 var METRIC_KEYS = Object.keys(DEFAULT_METRICS);
 async function updateMetrics(delta) {
-  let current = await getMetrics(), next = { ...current };
-  for (let k of METRIC_KEYS)
-    next[k] = (current[k] || 0) + (delta[k] || 0);
-  return await saveMetrics(next), next;
+  return withTopicWrite(async () => {
+    let current = await getMetrics(), next = { ...current };
+    for (let k of METRIC_KEYS)
+      next[k] = (current[k] || 0) + (delta[k] || 0);
+    return await saveMetrics(next), next;
+  });
 }
 async function exportBackupJson() {
   let metrics = await updateMetrics({ backupsExported: 1 }), [sync, digests, seen] = await Promise.all([
@@ -50753,11 +50812,11 @@ async function runStandaloneScanLocked(topic, maxVideos, apiKey, deps, opts) {
           let transcript = await deps.transcript(video.videoId, void 0, { signal: scanSignal.signal }), summary = await deps.summarize(apiKey, video, transcript.blocks, transcript.chapters);
           return secondsSaved += Math.max(60, (video.durationSec || 600) - 90), seenVideoIds.push(video.videoId), freshCount++, summary;
         } catch (err) {
-          if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError)
+          if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError || err instanceof ProviderConfigError)
             throw err;
           throw console.warn(`[scan] skipped video ${video.videoId}: Video processing failed`), err;
         }
-      }, (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError), skippedVideos = skipped.map((s) => s.videoId);
+      }, (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError || err instanceof ProviderConfigError), skippedVideos = skipped.map((s) => s.videoId);
       if (summaries.length === 0)
         return {
           status: 502,
@@ -50806,6 +50865,8 @@ async function runStandaloneScanLocked(topic, maxVideos, apiKey, deps, opts) {
     } catch (err) {
       if (err instanceof ProviderAvailabilityError)
         return { status: 429, body: providerErrorResponse(err) };
+      if (err instanceof ProviderConfigError)
+        return { status: 403, body: providerErrorResponse(err) };
       if (err instanceof ProviderFailureError)
         return { status: 502, body: providerErrorResponse(err) };
       return { status: 502, body: { error: "Scan failed. Please try again." } };

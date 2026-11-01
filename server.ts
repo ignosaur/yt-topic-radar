@@ -11,7 +11,7 @@ import {
   synthesizeTopicDigest,
   type TopicDigest,
 } from "./lib/summarizer";
-import { ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "./lib/provider-errors";
+import { ProviderAvailabilityError, ProviderConfigError, ProviderFailureError, providerErrorResponse } from "./lib/provider-errors";
 import {
   getSyncState,
   saveSyncState,
@@ -108,6 +108,7 @@ function sanitizeTopic(topic: unknown, max = 80): string {
 /** Allowlisted scan error category: typed provider codes or *Error names, else "error". */
 function scanErrorLabel(err: any): string {
   if (err instanceof ProviderAvailabilityError) return err.code;
+  if (err instanceof ProviderConfigError) return err.code;
   if (err instanceof ProviderFailureError) return err.code;
   const name = typeof err?.name === "string" ? err.name : "";
   if (/^[A-Za-z]{1,30}Error$/.test(name)) return name;
@@ -217,7 +218,7 @@ async function runScan(
         throw err;
       }
     },
-    (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError
+    (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError || err instanceof ProviderConfigError
   );
 
   for (const s of skipped) {
@@ -511,6 +512,7 @@ const server = Bun.serve({
       } catch (err: any) {
         console.log(`[scan] request failed error=${scanErrorLabel(err)}`);
         if (err instanceof ProviderAvailabilityError) return json(providerErrorResponse(err), 429);
+        if (err instanceof ProviderConfigError) return json(providerErrorResponse(err), 403);
         if (err instanceof ProviderFailureError) return json(providerErrorResponse(err), 502);
         return json({ error: "Scan failed. Please retry." }, 500);
       }

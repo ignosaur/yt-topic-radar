@@ -1,7 +1,7 @@
 import { GoogleGenAI, Type, type Schema } from "@google/genai";
 import type { SkippedVideo, TranscriptSegment, VideoCandidate } from "./youtube";
 import { formatTimestamp } from "./youtube";
-import { classifyProviderError, ProviderAvailabilityError, ProviderFailureError } from "./provider-errors";
+import { classifyProviderError, classifyProviderConfigError, ProviderAvailabilityError, ProviderConfigError, ProviderFailureError } from "./provider-errors";
 
 export type VideoType =
   | "tutorial"
@@ -121,7 +121,8 @@ const MODEL_CANDIDATES = [
  * (Chunk calls are sequential; no concurrency limiter exists here.)
  */
 /** Sanitized per-attempt outcome for telemetry: never raw provider messages. */
-function providerOutcome(err: any, availability: ReturnType<typeof classifyProviderError>): string {
+function providerOutcome(err: any, availability: ReturnType<typeof classifyProviderError>, config?: string): string {
+  if (config) return config;
   if (availability) return availability.code;
   const status = Number(err?.status);
   if (Number.isInteger(status) && status >= 100 && status <= 599) return `status_${status}`;
@@ -163,7 +164,10 @@ export async function generateWithFallback(
     } catch (err: any) {
       const msg = String(err?.message || err);
       const availability = classifyProviderError(err);
-      safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability)}`);
+      const config = classifyProviderConfigError(err);
+      safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=${providerOutcome(err, availability, config)}`);
+      // Same key/project fails every model: fail fast instead of burning the chain.
+      if (config) throw new ProviderConfigError(config);
       if (availability) {
         failures.push(availability);
         if (attempt < MODEL_CANDIDATES.length - 1 && availability.code === "rate_limited" && availability.retryAfterSeconds !== undefined && availability.retryAfterSeconds <= 10) {

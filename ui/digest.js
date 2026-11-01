@@ -1139,6 +1139,10 @@ el("btnScanTopic").addEventListener("click", async () => {
         showToast("Gemini is temporarily unavailable. Please try again later.", true);
         return;
       }
+      if (data.error === "gemini_api_not_enabled" || data.error === "invalid_api_key") {
+        showToast(`${data.message || "Gemini rejected this API key."} Your previous digest is unchanged.`, true);
+        return;
+      }
       if (data.error === "quota_exhausted" || data.error === "rate_limited") {
         const retry = Number(data.retryAfterSeconds);
         const retryText = Number.isFinite(retry) && retry > 0

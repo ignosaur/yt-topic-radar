@@ -3,7 +3,7 @@ import { runStandaloneScan, type EngineDeps } from "../lib/engine";
 import type { VideoCandidate } from "../lib/youtube";
 import { parseSummaryJson, type VideoSummary } from "../lib/summarizer";
 import type { UsageMetrics } from "../lib/storage";
-import { ProviderAvailabilityError, ProviderFailureError } from "../lib/provider-errors";
+import { ProviderAvailabilityError, ProviderConfigError, ProviderFailureError } from "../lib/provider-errors";
 
 function candidate(videoId: string, durationSec: number): VideoCandidate {
   return {
@@ -150,6 +150,21 @@ describe("runStandaloneScan", () => {
     expect(h.markSeen.mock.calls.length).toBe(0);
     expect(h.wasReleased()).toBe(true);
   });
+  for (const code of ["gemini_api_not_enabled", "invalid_api_key"] as const) {
+    test(`provider config failure (${code}) stops at first video and preserves state`, async () => {
+      const summarize = mock(async () => { throw new ProviderConfigError(code); });
+      const h = makeHarness({ summarize: summarize as unknown as EngineDeps["summarize"] });
+      const result = await runStandaloneScan("AI Agents", 3, "key", h.deps);
+      expect(result.status).toBe(403);
+      expect((result.body as any).error).toBe(code);
+      expect((result.body as any).message).toBe(new ProviderConfigError(code).message);
+      expect(summarize.mock.calls.length).toBe(1);
+      expect(h.saveDigest.mock.calls.length).toBe(0);
+      expect(h.updateMetrics.mock.calls.length).toBe(0);
+      expect(h.markSeen.mock.calls.length).toBe(0);
+      expect(h.wasReleased()).toBe(true);
+    });
+  }
   test("malformed video output is skipped and a valid replacement is saved", async () => {
     const summarize = mock(async (_key: string, video: VideoCandidate) => {
       if (video.videoId === "video-a") parseSummaryJson('{"private-provider-output":');

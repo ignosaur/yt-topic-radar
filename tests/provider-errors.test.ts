@@ -1,7 +1,7 @@
 import { test, expect } from "bun:test";
 import type { GoogleGenAI } from "@google/genai";
 import { generateWithFallback, parseSummaryJson, buildSummaryObject } from "../lib/summarizer";
-import { classifyProviderError, ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "../lib/provider-errors";
+import { classifyProviderConfigError, classifyProviderError, ProviderAvailabilityError, ProviderConfigError, ProviderFailureError, providerErrorResponse } from "../lib/provider-errors";
 
 const quota = { status: 429, message: JSON.stringify({ error: { code: 429, message: "Quota exceeded: requests per day", status: "RESOURCE_EXHAUSTED" } }) };
 const throttled = (delay: string) => ({ status: 429, message: JSON.stringify({ error: { code: 429, status: "RESOURCE_EXHAUSTED", details: [{ "@type": "type.googleapis.com/google.rpc.RetryInfo", retryDelay: delay }] } }) });
@@ -11,6 +11,9 @@ function stub(errors: unknown[], success?: object) {
   return { ai, calls: () => calls };
 }
 const params = { contents: "test" };
+// Sanitized shape of the real HAR failure: key maps to a project with the API disabled.
+const apiDisabled = { status: 403, message: JSON.stringify({ error: { code: 403, message: "Gemini API has not been used in project 123456789 before or it is disabled.", status: "PERMISSION_DENIED", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "SERVICE_DISABLED", domain: "googleapis.com", metadata: { service: "generativelanguage.googleapis.com" } }] } }) };
+const invalidKey = { status: 400, message: JSON.stringify({ error: { code: 400, message: "API key not valid. Please pass a valid API key.", status: "INVALID_ARGUMENT", details: [{ "@type": "type.googleapis.com/google.rpc.ErrorInfo", reason: "API_KEY_INVALID", domain: "googleapis.com" }] } }) };
 
 test("classifies daily quota and structured retry delays without returning messages", () => {
   expect(classifyProviderError(quota)).toEqual({ code: "quota_exhausted" });
@@ -18,6 +21,20 @@ test("classifies daily quota and structured retry delays without returning messa
   expect(classifyProviderError({ status: 429, message: "broken json secret" })).toEqual({ code: "rate_limited" });
   expect(classifyProviderError({ status: 500, message: "requests per day" })).toBeUndefined();
   expect(JSON.stringify(providerErrorResponse(new ProviderAvailabilityError("quota_exhausted")))).not.toContain("secret");
+});
+
+test("classifies provider config faults strictly, without leaking provider data", async () => {
+  expect(classifyProviderConfigError(apiDisabled)).toBe("gemini_api_not_enabled");
+  expect(classifyProviderConfigError(invalidKey)).toBe("invalid_api_key");
+  expect(classifyProviderConfigError({ status: 403, message: "403 denied" })).toBeUndefined();
+  expect(classifyProviderError(apiDisabled)).toBeUndefined();
+  const s = stub([apiDisabled]);
+  let error: unknown;
+  try { await generateWithFallback(s.ai, params, async () => {}); } catch (e) { error = e; }
+  expect(error).toBeInstanceOf(ProviderConfigError);
+  expect((error as ProviderConfigError).code).toBe("gemini_api_not_enabled");
+  expect(s.calls()).toBe(1);
+  expect(JSON.stringify(providerErrorResponse(error as ProviderConfigError))).not.toContain("123456789");
 });
 
 test("fallback succeeds after one model quota failure", async () => {

@@ -11,7 +11,7 @@ import {
   type TopicDigest,
   type VideoSummary,
 } from "./summarizer";
-import { ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "./provider-errors";
+import { ProviderAvailabilityError, ProviderConfigError, ProviderFailureError, providerErrorResponse } from "./provider-errors";
 import {
   getDigests,
   markVideoSeen,
@@ -298,12 +298,12 @@ async function runStandaloneScanLocked(
             freshCount++;
             return summary;
           } catch (err) {
-            if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError) throw err;
+            if (err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError || err instanceof ProviderConfigError) throw err;
             console.warn(`[scan] skipped video ${video.videoId}: Video processing failed`);
             throw err;
           }
         },
-        (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError
+        (err) => err instanceof ProviderAvailabilityError || err instanceof ProviderFailureError || err instanceof ProviderConfigError
       );
 
       const skippedVideos = skipped.map((s) => s.videoId);
@@ -382,6 +382,9 @@ async function runStandaloneScanLocked(
     } catch (err) {
       if (err instanceof ProviderAvailabilityError) {
         return { status: 429, body: providerErrorResponse(err) };
+      }
+      if (err instanceof ProviderConfigError) {
+        return { status: 403, body: providerErrorResponse(err) };
       }
       if (err instanceof ProviderFailureError) {
         return { status: 502, body: providerErrorResponse(err) };
