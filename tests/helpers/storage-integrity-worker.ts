@@ -220,6 +220,28 @@ if (scenario === "perm") {
   if (bad.status !== 400) fail(`standalone topics:[42] gave ${bad.status}`);
   const ok = await post("/api/sync", { topics: ["Good Topic"] });
   if (ok.status !== 200) fail(`standalone valid sync gave ${ok.status}`);
+  // Malformed JSON -> 400 invalid_json with no state change, on all 4 routes.
+  await post("/api/key", { apiKey: "sentinel-key-12345" });
+  const rawPost = (p: string, raw: string) =>
+    route(p, { method: "POST", headers: { "Content-Type": "application/json" }, body: raw });
+  const standaloneState = async () => (await (await route("/api/state")).json()) as any;
+  for (const p of ["/api/sync", "/api/metrics", "/api/key", "/api/scan"]) {
+    for (const raw of ["{bad", "null"]) {
+      const before = await standaloneState();
+      let res: Response;
+      try {
+        res = await rawPost(p, raw);
+      } catch (err: any) {
+        fail(`${p} ${raw} threw instead of 400: ${String(err?.message || err).slice(0, 120)}`);
+      }
+      const body = (await res!.json().catch(() => ({}))) as any;
+      if (res!.status !== 400 || body.error !== "invalid_json") {
+        fail(`${p} ${raw} gave ${res!.status}: ${JSON.stringify(body).slice(0, 120)}`);
+      }
+      const after = await standaloneState();
+      if (JSON.stringify(after) !== JSON.stringify(before)) fail(`${p} ${raw} changed state`);
+    }
+  }
   console.log("STANDALONE_ROUTES_OK");
 } else {
   console.error(`unknown scenario: ${scenario}`);

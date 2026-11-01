@@ -29,6 +29,19 @@ async function post(path: string, body: unknown) {
   return { status: res.status, data: (await res.json().catch(() => ({}))) as any };
 }
 
+async function postRaw(path: string, raw: string) {
+  const res = await fetch(`${BASE}${path}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: raw,
+  });
+  return { status: res.status, data: (await res.json().catch(() => ({}))) as any };
+}
+
+async function getState() {
+  return (await (await fetch(`${BASE}/api/state`)).json()) as any;
+}
+
 const topics = (n: number) => Array.from({ length: n }, (_, i) => `Topic ${i + 1}`);
 
 beforeAll(async () => {
@@ -266,4 +279,24 @@ test("tricky Content-Type rejected, charset suffix still passes", async () => {
     body: "{}",
   });
   expect(charset.status).not.toBe(415);
+});
+
+test("malformed JSON -> 400 invalid_json, no state change", async () => {
+  await post("/api/key", { apiKey: "sentinel-key-12345" });
+  const routes = ["/api/sync", "/api/metrics", "/api/key", "/api/scan", "/api/entitlements"];
+  const bodies = ["{bad", "null"];
+  for (const route of routes) {
+    for (const raw of bodies) {
+      const before = await getState();
+      const res = await postRaw(route, raw);
+      expect(res.status, `${route} ${raw}: status`).toBe(400);
+      expect(res.data.error, `${route} ${raw}: error`).toBe("invalid_json");
+      const after = await getState();
+      expect(after, `${route} ${raw}: state`).toEqual(before);
+    }
+  }
+  // Rejected scan bodies must not hold the scan lock: an empty-topic scan
+  // still answers 400 (required), never 409 (in progress).
+  const probe = await post("/api/scan", { topic: "", maxVideos: 1 });
+  expect(probe.status).toBe(400);
 });

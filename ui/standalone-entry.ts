@@ -37,6 +37,21 @@ async function readBodyText(init?: RequestInit): Promise<string> {
   return new Response(body as BodyInit).text();
 }
 
+/** Parse a JSON route body; rejects unparseable input and non-plain-
+ * objects (null, arrays, scalars) before any storage write or scan start. */
+async function readJsonObject(init?: RequestInit): Promise<{ ok: true; body: any } | { ok: false }> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse((await readBodyText(init)) || "{}");
+  } catch {
+    return { ok: false };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    return { ok: false };
+  }
+  return { ok: true, body: parsed };
+}
+
 async function buildState() {
   const [sync, digests, apiKey, metrics] = await Promise.all([
     getSyncState(),
@@ -65,7 +80,9 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
   }
 
   if (path === "/api/sync" && method === "POST") {
-    const body = JSON.parse((await readBodyText(init)) || "{}") as Record<string, unknown>;
+    const parsed = await readJsonObject(init);
+    if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+    const body = parsed.body as Record<string, unknown>;
     const current = await getSyncState();
     const next: SyncState = {
       topics: Array.isArray(body.topics) ? (body.topics as string[]) : current.topics,
@@ -102,14 +119,18 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
   }
 
   if (path === "/api/key" && method === "POST") {
-    const body = JSON.parse((await readBodyText(init)) || "{}") as { apiKey?: string };
+    const parsed = await readJsonObject(init);
+    if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+    const body = parsed.body as { apiKey?: string };
     if (!body.apiKey) return json({ error: "API key required" }, 400);
     await saveApiKey(body.apiKey);
     return json({ ok: true });
   }
 
   if (path === "/api/metrics" && method === "POST") {
-    const body = JSON.parse((await readBodyText(init)) || "{}") as { event?: string };
+    const parsed = await readJsonObject(init);
+    if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+    const body = parsed.body as { event?: string };
     let metrics = await getMetrics();
     if (body.event === "timestampClick") {
       metrics = await updateMetrics({ timestampClicks: 1 });
@@ -120,7 +141,9 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
   }
 
   if (path === "/api/scan" && method === "POST") {
-    const body = JSON.parse((await readBodyText(init)) || "{}") as {
+    const parsed = await readJsonObject(init);
+    if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+    const body = parsed.body as {
       topic?: string;
       maxVideos?: number;
     };

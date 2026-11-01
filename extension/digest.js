@@ -50829,6 +50829,17 @@ async function readBodyText(init) {
     return "";
   return new Response(body).text();
 }
+async function readJsonObject(init) {
+  let parsed;
+  try {
+    parsed = JSON.parse(await readBodyText(init) || "{}");
+  } catch {
+    return { ok: !1 };
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed))
+    return { ok: !1 };
+  return { ok: !0, body: parsed };
+}
 async function buildState() {
   let [sync, digests, apiKey, metrics] = await Promise.all([
     getSyncState(),
@@ -50852,7 +50863,10 @@ async function handleApi(input, init) {
   if (path === "/api/state" && method === "GET")
     return json2(await buildState());
   if (path === "/api/sync" && method === "POST") {
-    let body = JSON.parse(await readBodyText(init) || "{}"), current = await getSyncState(), next = {
+    let parsed = await readJsonObject(init);
+    if (!parsed.ok)
+      return json2({ error: "invalid_json" }, 400);
+    let body = parsed.body, current = await getSyncState(), next = {
       topics: Array.isArray(body.topics) ? body.topics : current.topics,
       pinnedChannels: Array.isArray(body.pinnedChannels) ? body.pinnedChannels : current.pinnedChannels,
       minDurationSec: typeof body.minDurationSec === "number" ? body.minDurationSec : current.minDurationSec,
@@ -50876,13 +50890,19 @@ async function handleApi(input, init) {
     }
   }
   if (path === "/api/key" && method === "POST") {
-    let body = JSON.parse(await readBodyText(init) || "{}");
+    let parsed = await readJsonObject(init);
+    if (!parsed.ok)
+      return json2({ error: "invalid_json" }, 400);
+    let body = parsed.body;
     if (!body.apiKey)
       return json2({ error: "API key required" }, 400);
     return await saveApiKey(body.apiKey), json2({ ok: !0 });
   }
   if (path === "/api/metrics" && method === "POST") {
-    let body = JSON.parse(await readBodyText(init) || "{}"), metrics = await getMetrics();
+    let parsed = await readJsonObject(init);
+    if (!parsed.ok)
+      return json2({ error: "invalid_json" }, 400);
+    let body = parsed.body, metrics = await getMetrics();
     if (body.event === "timestampClick")
       metrics = await updateMetrics({ timestampClicks: 1 });
     else if (body.event === "ttsPlay")
@@ -50890,7 +50910,10 @@ async function handleApi(input, init) {
     return json2({ ok: !0, metrics });
   }
   if (path === "/api/scan" && method === "POST") {
-    let body = JSON.parse(await readBodyText(init) || "{}"), topic = (body.topic || "").trim();
+    let parsed = await readJsonObject(init);
+    if (!parsed.ok)
+      return json2({ error: "invalid_json" }, 400);
+    let body = parsed.body, topic = (body.topic || "").trim();
     if (!topic)
       return json2({ error: "Topic is required" }, 400);
     let apiKey = await getApiKey();

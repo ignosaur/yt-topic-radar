@@ -114,6 +114,22 @@ function scanErrorLabel(err: any): string {
   return "error";
 }
 
+/** Parse a JSON request body; rejects unparseable input and non-plain-
+ * objects (null, arrays, scalars) so malformed bodies answer 400 before
+ * any storage write, scan start, or lock acquisition. */
+async function readJsonObject(req: Request): Promise<{ ok: true; body: any } | { ok: false }> {
+  let body: unknown;
+  try {
+    body = await req.json();
+  } catch {
+    return { ok: false };
+  }
+  if (typeof body !== "object" || body === null || Array.isArray(body)) {
+    return { ok: false };
+  }
+  return { ok: true, body };
+}
+
 let activeScan: { topic: string; since: number } | null = null;
 
 // The scan pipeline itself (search -> filter -> transcript -> summarize ->
@@ -365,7 +381,9 @@ const server = Bun.serve({
 
     // API: Update sync state (topics, pinnedChannels, topicMeta, telemetryOptIn)
     if (url.pathname === "/api/sync" && req.method === "POST") {
-      const body = (await req.json()) as any;
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      const body = parsed.body as any;
       const current = await getSyncState();
       const next = {
         topics: Array.isArray(body.topics) ? body.topics : current.topics,
@@ -408,7 +426,9 @@ const server = Bun.serve({
 
     // API: Set Pro entitlement (manual unlock, Phase 4; real licence in Phase 5)
     if (url.pathname === "/api/entitlements" && req.method === "POST") {
-      const body = (await req.json().catch(() => null)) as any;
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      const body = parsed.body as any;
       if (!body || typeof body.isPro !== "boolean") {
         return json({ error: "isPro boolean required" }, 400);
       }
@@ -418,7 +438,9 @@ const server = Bun.serve({
 
     // API: Record usage metric event (timestampClick, ttsPlay)
     if (url.pathname === "/api/metrics" && req.method === "POST") {
-      const body = (await req.json()) as { event?: string };
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      const body = parsed.body as { event?: string };
       let metrics = await getMetrics();
       if (body.event === "timestampClick") {
         metrics = await updateMetrics({ timestampClicks: 1 });
@@ -430,7 +452,9 @@ const server = Bun.serve({
 
     // API: Save Gemini API Key
     if (url.pathname === "/api/key" && req.method === "POST") {
-      const body = (await req.json()) as { apiKey?: string };
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      const body = parsed.body as { apiKey?: string };
       if (!body.apiKey) {
         return json({ error: "API key required" }, 400);
       }
@@ -440,8 +464,10 @@ const server = Bun.serve({
 
     // API: Scan a Topic (Search -> Filter -> Transcript -> Summarize -> Synthesize)
     if (url.pathname === "/api/scan" && req.method === "POST") {
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      const body = parsed.body as { topic: string; maxVideos?: number };
       try {
-        const body = (await req.json()) as { topic: string; maxVideos?: number };
         const topic = (body.topic || "").trim();
         // `|| 3` after Number() collapses NaN (e.g. maxVideos:"abc") to the
         // default; without it collectWithBackfill's attempt cap becomes NaN and
