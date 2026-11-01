@@ -88,6 +88,27 @@ export interface Entitlements {
   isPro: boolean;
 }
 
+export class BackupValidationError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "BackupValidationError";
+  }
+}
+
+export class StoreLockedError extends Error {
+  constructor(owner?: string) {
+    super(`store_locked: store is in use by another process${owner ? ` (pid ${owner})` : ""}`);
+    this.name = "StoreLockedError";
+  }
+}
+
+export class CorruptStoreError extends Error {
+  constructor(path: string) {
+    super(`store_corrupt: ${path} contains invalid JSON and was left unchanged`);
+    this.name = "CorruptStoreError";
+  }
+}
+
 interface CliStoreData {
   sync: SyncState;
   apiKey: string;
@@ -99,15 +120,91 @@ interface CliStoreData {
 
 let cliStoreCache: CliStoreData | null = null;
 let cliWriteChain: Promise<void> = Promise.resolve();
+let cliStoreLockHeld = false;
+let cliStoreLockReleaseInstalled = false;
+// Sync fs stashed at claim time: 'exit' handlers cannot await, so the release
+// below must be synchronous. Type-only import — no runtime/bundle impact.
+let cliLockSyncFs: Pick<typeof import("node:fs"), "readFileSync" | "unlinkSync"> | null = null;
+
+function installCliStoreLockRelease(): void {
+  if (cliStoreLockReleaseInstalled) return;
+  if (typeof process === "undefined" || typeof process.once !== "function") return;
+  cliStoreLockReleaseInstalled = true;
+  // Best-effort: only removes our own lock (pid check); anything left behind
+  // is still reclaimed via the dead-pid check on the next claim.
+  process.once("exit", () => {
+    cliStoreLockHeld = false;
+    try {
+      const fs = cliLockSyncFs;
+      if (!fs) return;
+      const lockPath = `${CLI_STORE_PATH}.lock`;
+      if (fs.readFileSync(lockPath, "utf8").trim() !== String(process.pid)) return;
+      fs.unlinkSync(lockPath);
+    } catch { /* best-effort; reclaim covers leftovers */ }
+  });
+}
+
+// One process owns a CLI store at a time: an exclusive `${CLI_STORE_PATH}.lock`
+// file (owner pid inside) fails fast in a second writer instead of letting its
+// stale snapshot clobber the first process. A lock whose pid is dead is
+// reclaimed; browser builds never reach here (early return, no node:fs load).
+async function ensureCliStoreLock(): Promise<void> {
+  if (cliStoreLockHeld) return;
+  if (typeof process === "undefined" || typeof process.pid !== "number") return;
+  const fs = await import("node:fs/promises");
+  const lockPath = `${CLI_STORE_PATH}.lock`;
+  const mine = String(process.pid);
+  const claim = () => fs.writeFile(lockPath, mine, { flag: "wx", mode: 0o600 });
+  try {
+    await claim();
+    cliStoreLockHeld = true;
+    try {
+      const syncFs = await import("node:fs");
+      cliLockSyncFs = syncFs;
+    } catch { /* sync release unavailable; reclaim still covers crashes */ }
+    installCliStoreLockRelease();
+    return;
+  } catch (err: any) {
+    if (err?.code !== "EEXIST") throw err;
+  }
+  const owner = await fs.readFile(lockPath, "utf8").catch(() => "");
+  const pid = Number(owner.trim());
+  let alive = true;
+  if (!Number.isFinite(pid) || pid <= 0) alive = false;
+  else {
+    try {
+      process.kill(pid, 0);
+    } catch (sig: any) {
+      alive = sig?.code !== "ESRCH"; // EPERM etc. means a live pid we cannot signal
+    }
+  }
+  if (!alive) {
+    // Stale lock from a dead process: reclaim so one crash never wedges writers.
+    await fs.unlink(lockPath).catch(() => {});
+    try {
+      await claim();
+      cliStoreLockHeld = true;
+      try {
+        const syncFs = await import("node:fs");
+        cliLockSyncFs = syncFs;
+      } catch { /* sync release unavailable; reclaim still covers crashes */ }
+      installCliStoreLockRelease();
+      return;
+    } catch (err: any) {
+      if (err?.code !== "EEXIST") throw err;
+    }
+  }
+  throw new StoreLockedError(owner.trim() || undefined);
+}
 
 async function readCliStore(): Promise<CliStoreData> {
   if (cliStoreCache) return cliStoreCache;
+  const fs = await import("node:fs/promises");
+  let raw: string;
   try {
-    const fs = await import("node:fs/promises");
-    const raw = await fs.readFile(CLI_STORE_PATH, "utf8");
-    cliStoreCache = JSON.parse(raw);
-    return cliStoreCache!;
-  } catch {
+    raw = await fs.readFile(CLI_STORE_PATH, "utf8");
+  } catch (err: any) {
+    if (err?.code !== "ENOENT") throw err;
     cliStoreCache = {
       sync: DEFAULT_SYNC,
       apiKey: process.env.GEMINI_API_KEY || "",
@@ -117,14 +214,30 @@ async function readCliStore(): Promise<CliStoreData> {
     };
     return cliStoreCache;
   }
+  try {
+    cliStoreCache = JSON.parse(raw);
+  } catch {
+    cliStoreCache = null; // never cache corrupt data; the file stays untouched below
+    throw new CorruptStoreError(CLI_STORE_PATH);
+  }
+  // Tighten a pre-existing store (e.g. 0664 from before item 4); best-effort.
+  await fs.chmod(CLI_STORE_PATH, 0o600).catch(() => {});
+  return cliStoreCache!;
 }
 
 async function writeCliStore(data: CliStoreData): Promise<void> {
   cliStoreCache = data;
   const snapshot = JSON.stringify(data, null, 2);
-  cliWriteChain = cliWriteChain.then(async () => {
+  // A rejected save must not poison later saves (same house pattern as withTopicWrite).
+  cliWriteChain = cliWriteChain.catch(() => {}).then(async () => {
+    await ensureCliStoreLock();
     const fs = await import("node:fs/promises");
-    await fs.writeFile(CLI_STORE_PATH, snapshot, "utf8");
+    // Temp file + rename: a crash mid-write never leaves a half-written store.
+    const tmpPath = `${CLI_STORE_PATH}.tmp`;
+    await fs.writeFile(tmpPath, snapshot, { encoding: "utf8", mode: 0o600 });
+    await fs.chmod(tmpPath, 0o600).catch(() => {});
+    await fs.rename(tmpPath, CLI_STORE_PATH);
+    await fs.chmod(CLI_STORE_PATH, 0o600).catch(() => {});
   });
   return cliWriteChain;
 }
@@ -372,8 +485,7 @@ export async function updateMetrics(
 
 /**
  * 1-Click Export Backup JSON (excludes API key by default for safety).
- */
-export async function exportBackupJson(): Promise<string> {
+ */export async function exportBackupJson(): Promise<string> {
   const metrics = await updateMetrics({ backupsExported: 1 });
   const [sync, digests, seen] = await Promise.all([
     getSyncState(),
@@ -391,6 +503,126 @@ export async function exportBackupJson(): Promise<string> {
   return JSON.stringify(payload, null, 2);
 }
 
+const BACKUP_MAX_BYTES = 10 * 1024 * 1024;
+const MAX_TOPIC_LENGTH = 200;
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function invalid(message: string): never {
+  throw new BackupValidationError(message);
+}
+
+// Single shared sync-shape check: backup import, server /api/sync and the
+// standalone /api/sync route all call this so validation cannot drift.
+export function validateSyncValue(sync: unknown): asserts sync is SyncState {
+  if (!isRecord(sync)) invalid("sync must be an object");
+  if (!Array.isArray(sync.topics)) invalid("sync.topics must be an array");
+  for (const topic of sync.topics) {
+    if (typeof topic !== "string" || topic.length === 0 || topic.length > MAX_TOPIC_LENGTH) {
+      invalid("sync.topics must be non-empty strings (max 200 chars)");
+    }
+  }
+  if (sync.pinnedChannels !== undefined) {
+    if (!Array.isArray(sync.pinnedChannels)) invalid("pinnedChannels must be an array");
+    for (const ch of sync.pinnedChannels as unknown[]) {
+      if (!isRecord(ch) || typeof ch.channelId !== "string" || typeof ch.channelName !== "string" || typeof ch.topic !== "string") {
+        invalid("pinnedChannels[] must have string channelId/channelName/topic");
+      }
+    }
+  }
+  if (sync.topicMeta !== undefined) {
+    if (!isRecord(sync.topicMeta)) invalid("topicMeta must be an object");
+    for (const meta of Object.values(sync.topicMeta)) {
+      if (!isRecord(meta) || (meta.starred !== undefined && typeof meta.starred !== "boolean")) {
+        invalid("topicMeta values must be objects with optional boolean starred");
+      }
+    }
+  }
+  if (sync.minDurationSec !== undefined && (typeof sync.minDurationSec !== "number" || !Number.isFinite(sync.minDurationSec) || sync.minDurationSec < 0)) {
+    invalid("minDurationSec must be a finite number >= 0");
+  }
+  if (sync.telemetryOptIn !== undefined && typeof sync.telemetryOptIn !== "boolean") {
+    invalid("telemetryOptIn must be a boolean");
+  }
+}
+
+function validateDigestRecord(digests: unknown): void {
+  if (!isRecord(digests)) invalid("digests must be an object");
+  for (const digest of Object.values(digests)) {
+    if (!isRecord(digest) || typeof digest.topic !== "string" || typeof digest.generatedAt !== "string" || !Array.isArray(digest.videos)) {
+      invalid("digests[] must have string topic/generatedAt and a videos[] array");
+    }
+    for (const video of digest.videos as unknown[]) {
+      if (!isRecord(video) || typeof video.videoId !== "string" || typeof video.title !== "string" || typeof video.channelName !== "string" || typeof video.url !== "string") {
+        invalid("digests[].videos[] must have string videoId/title/channelName/url");
+      }
+      if (video.chapterBreakdown !== undefined) {
+        if (!Array.isArray(video.chapterBreakdown)) invalid("chapterBreakdown must be an array");
+        for (const ch of video.chapterBreakdown as unknown[]) {
+          if (!isRecord(ch) || typeof ch.timestamp !== "string" || typeof ch.sectionTitle !== "string" || !Array.isArray(ch.keyPoints) || !(ch.keyPoints as unknown[]).every((k) => typeof k === "string")) {
+            invalid("chapterBreakdown[] must have string timestamp/sectionTitle and string[] keyPoints");
+          }
+        }
+      }
+      if (video.typeSpecificDetails !== undefined) {
+        if (!Array.isArray(video.typeSpecificDetails)) invalid("typeSpecificDetails must be an array");
+        for (const d of video.typeSpecificDetails as unknown[]) {
+          if (!isRecord(d) || typeof d.label !== "string" || !Array.isArray(d.items) || !(d.items as unknown[]).every((i) => typeof i === "string")) {
+            invalid("typeSpecificDetails[] must have string label and string[] items");
+          }
+        }
+      }
+    }
+  }
+}
+
+// UTF-8 byte length without a node: import (bundle-safe): Buffer when
+// present, else a TextEncoder pass, else string length as last resort.
+function backupByteLength(rawJson: string): number {
+  const buf = (globalThis as any).Buffer;
+  if (buf?.byteLength) {
+    try {
+      return buf.byteLength(rawJson, "utf8");
+    } catch { /* fall through */ }
+  }
+  try {
+    return new TextEncoder().encode(rawJson).length;
+  } catch {
+    return rawJson.length;
+  }
+}
+
+// Parses and fully validates a backup BEFORE any write happens, so a rejected
+// backup leaves the store (and revision) untouched.
+export function parseAndValidateBackup(rawJson: string): BackupPayload {
+  if (typeof rawJson !== "string") invalid("backup must be a JSON string");
+  if (backupByteLength(rawJson) > BACKUP_MAX_BYTES) invalid("backup_too_large: backup exceeds 10 MiB");
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(rawJson);
+  } catch {
+    invalid("backup is not valid JSON");
+  }
+  if (!isRecord(parsed)) invalid("Invalid backup file format: missing 'sync' state.");
+  const root: Record<string, unknown> = parsed;
+  if (!isRecord(root.sync)) invalid("Invalid backup file format: missing 'sync' state.");
+  validateSyncValue(root.sync);
+  if (root.digests !== undefined) validateDigestRecord(root.digests);
+  if (root.seenVideoIds !== undefined) {
+    if (!Array.isArray(root.seenVideoIds) || !(root.seenVideoIds as unknown[]).every((id) => typeof id === "string")) {
+      invalid("seenVideoIds must be a string array");
+    }
+  }
+  if (root.metrics !== undefined) {
+    if (!isRecord(root.metrics) || !Object.values(root.metrics).every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0)) {
+      invalid("metrics must be finite numbers >= 0");
+    }
+  }
+  return root as unknown as BackupPayload;
+}
+
 /**
  * 1-Click Import Backup JSON (merges topics, topicMeta, pinned channels, digests, metrics, and seen IDs without duplicates).
  */
@@ -401,10 +633,9 @@ export async function importBackupJson(
   topicsCount: number;
   digestsCount: number;
 }> {
-  const parsed = JSON.parse(rawJson) as Partial<BackupPayload>;
-  if (!parsed || typeof parsed !== "object" || !parsed.sync) {
-    throw new Error("Invalid backup file format: missing 'sync' state.");
-  }
+  // Fully validated up front: nothing below has written yet, so a throw
+  // leaves the store byte-identical with no revision bump.
+  const parsed = parseAndValidateBackup(rawJson);
 
   const currentSync = await getSyncState();
   const allTopics = [

@@ -13,6 +13,8 @@ import {
   saveApiKey,
   saveSyncState,
   StaleSyncError,
+  validateSyncValue,
+  StoreLockedError,
   updateMetrics,
   type SyncState,
 } from "../lib/storage";
@@ -83,12 +85,18 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
           ? body.telemetryOptIn
           : current.telemetryOptIn ?? false,
     };
-    // Pro flag off: no topic cap.
+    // Pro flag off: no topic cap. Shape-checked with the shared validator.
+    try {
+      validateSyncValue(next);
+    } catch (err) {
+      return json({ error: String((err as any)?.message || err) }, 400);
+    }
     try {
       const sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : undefined);
       return json({ ok: true, sync });
     } catch (err) {
       if (err instanceof StaleSyncError) return json({ error: "stale_state" }, 409);
+      if (err instanceof StoreLockedError) return json({ error: String(err.message) }, 409);
       throw err;
     }
   }

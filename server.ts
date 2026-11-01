@@ -27,6 +27,9 @@ import {
   exportBackupJson,
   importBackupJson,
   markVideoSeen,
+  validateSyncValue,
+  BackupValidationError,
+  StoreLockedError,
   STARTER_TOPICS,
   MONETIZATION_CONFIG,
 } from "./lib/storage";
@@ -311,6 +314,12 @@ const server = Bun.serve({
             ? body.telemetryOptIn
             : current.telemetryOptIn ?? false,
       };
+      try {
+        validateSyncValue(next);
+      } catch (err) {
+        const message = err instanceof BackupValidationError ? err.message : String((err as any)?.message || err);
+        return json({ error: message }, 400);
+      }
       const { isPro } = await getEntitlements();
       if (
         !isPro &&
@@ -324,6 +333,7 @@ const server = Bun.serve({
         return json({ ok: true, sync });
       } catch (err) {
         if (err instanceof StaleSyncError) return json({ error: "stale_state" }, 409);
+        if (err instanceof StoreLockedError) return json({ error: String(err.message) }, 409);
         throw err;
       }
     }
