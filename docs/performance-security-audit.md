@@ -5,7 +5,14 @@ Scans YouTube topics and uses Gemini to produce timestamped summaries. It runs a
 
 **Assumed load:** one person, sometimes using a tab and side panel together, with occasional CLI use. Not a public server.
 
-**Status:** Traced against code 2026-11-01 — every item below now has file:line evidence, a concrete acceptance test, and a lane. Item numbers are stable IDs; lanes are the execution units. Do not renumber items when moving them between lanes.
+**Status:** DONE 2026-11-01 — all 10 items implemented across 4 lanes and parent-verified. Item numbers are stable IDs; lanes were the execution units. Do not renumber items.
+
+| Lane | Commit | Parent gate result |
+|---|---|---|
+| A — Server boundary (#2→#3) | `2787b61` | contract 11 pass; unit 74 pass / 0 fail (Playwright `.spec.ts` excluded — see residual 6) |
+| B — Dashboard XSS (#1) | `2787b61` | Playwright XSS 4 passed |
+| C — Storage integrity (#4→#5→#8→#9) | `be71570` | unit 82 pass / 0 fail; contract 11 pass; self-checks pass; `bun run build:ext` ok |
+| D — Scan lifecycle (#6→#7→#10) | `8bfc011` | unit 87 pass / 0 fail; engine+backfill+contract gate 31 pass |
 
 ## Execution lanes (read this first)
 
@@ -16,14 +23,14 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
 | A — Server boundary | 2 → 3 | `server.ts:42–60,189–191,257–410`; tests: `tests/phase4-contract.test.ts` | Yes, with B |
 | B — Dashboard XSS | 1 | `ui/digest.js:98–106,600–770,925–972` | Yes, with A |
 | C — Storage integrity | 4 → 5 → 8 → 9 | `lib/storage.ts:84–129,181–476`; `server.ts:257–285`; `ui/standalone-entry.ts:65–94` | No — one worker, sequential |
-| D — Scan lifecycle | 6 → 7 → 10 | `lib/engine.ts:38–98,125–248`; `lib/youtube.ts:57–64,142,287–390`; `server.ts:63–70,86–186,326–365`; `lib/storage.ts:283–302` (read-only for #10) | No — after C (shares `lib/storage.ts` read path) |
+| D — Scan lifecycle | 6 → 7 → 10 | `lib/engine.ts`; `lib/youtube.ts` (`fetchWithDeadline`, `indexByVideoId`); `server.ts` (`runScan` deadline + reuse); `lib/storage.ts` read-only for #10 | No — after C |
 
 **Shared-file rule:** one writer per lane worktree. Lane C finishes (or is at least merged) before Lane D starts, because #10 reads `getDigests()`/`getSeenVideoIds()` from `lib/storage.ts`.
 
 ## Must fix
 
 ### 1. Untrusted text can execute JavaScript
-`ui/digest.js:L609–627, L681–760, L937–950` — **Lane B**
+`ui/digest.js:L609–627, L681–760, L937–950` — **Lane B — DONE (`2787b61`)**
 
 - **What this is:** Topics, AI summaries and imported backups are displayed in the dashboard.
 - **Problem:** Several fields go directly into `innerHTML` without escaping. Browser tests confirmed JavaScript execution through both a topic and a summary bullet.
@@ -34,9 +41,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - Every sink listed above passes through `esc()` (text and attribute contexts); no other `innerHTML` template interpolates state/digest data unescaped. Verify by grepping `innerHTML` templates in `ui/digest.js`, not by spot-checking one field.
   - New Playwright test (alongside `tests/responsive-layout.spec.ts`, which already uses `bunx playwright test` against a spawned server): seed a digest + topic containing `<img src=x onerror=...>`, `"><svg onload=...>`, and `</button><script>...` payloads in topic name, `crossVideoSynthesis`, chapter title/keyPoint, detail label/item, and side-panel notes; assert no payload element is created, no script executes (e.g. `window.__xss` stays unset), and the literal text is visible.
   - Existing escaped fields still render (topic list, pinned channels, subtopic pills clickable via `data-*`).
+- **Result:** all traced sinks escaped (`esc()` text + attributes; `encodeURIComponent`/`Number()` hardening in side panel); `tests/dashboard-xss.spec.ts` 4 passed (main-digest exec, literal-text render, benign fields, side-panel exec). Residual 1 applies (`javascript:` href scheme).
 
 ### 2. The “local” server accepts network connections without authentication
-`server.ts:L189–200` — **Lane A**
+`server.ts:L189–200` — **Lane A — DONE (`2787b61`)**
 
 - **What this is:** The Bun server exposes saved state and actions that spend Gemini quota.
 - **Problem:** No listening address is specified. I confirmed a wildcard listening socket and successfully fetched `/api/state` through non-loopback network interfaces.
@@ -46,9 +54,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
 - **Acceptance:**
   - `Bun.serve` gets `hostname: "127.0.0.1"` (keep `PORT` override working).
   - Contract test in `tests/phase4-contract.test.ts` style (server spawned on port 3459, isolated `RADAR_STORE_PATH`): `GET /api/state` via `127.0.0.1` succeeds; the same request via the machine's non-loopback interface address fails to connect.
+- **Result:** `hostname: "127.0.0.1"` set; `PORT` override intact; loopback `GET /api/state` test added and passing. Non-loopback refusal was not probed in this environment (follows from the explicit bind; firewall-dependent) — residual: none open beyond that.
 
 ### 3. CORS does not prevent unwanted writes
-`server.ts:L52–60, L257–285, L315–321` — **Lane A**
+`server.ts:L52–60, L257–285, L315–321` — **Lane A — DONE (`2787b61`)**
 
 - **What this is:** CORS controls which websites may read API responses.
 - **Problem:** Disallowed origins still reach the handlers. A browser page on an untrusted loopback origin successfully changed topics using a plain-text POST; blocking the response did not block the write.
@@ -60,9 +69,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - If `Origin` is absent (curl/CLI/tests) or allowlisted, behavior is unchanged.
   - JSON routes (`/api/sync`, `/api/entitlements`, `/api/metrics`, `/api/key`, `/api/scan`) reject a non-JSON `Content-Type` (allow `application/json; charset=...`) with `400`/`415` before parsing; `/api/backup/import` keeps accepting the raw body from `ui/digest.js:1224` but is Origin-checked and size/validation-gated by item 5.
   - Contract tests: untrusted-Origin `POST /api/sync` and `POST /api/key` return `403` and `GET /api/state` shows no change; `text/plain` `POST /api/sync` is rejected; existing phase-4 tests (which send no `Origin`) still pass.
+- **Result:** pre-handler gate (`originBlocked` → `403 forbidden_origin`; JSON routes → `415` on non-JSON; import keeps raw body + Origin check) in `server.ts`; all new + existing contract tests pass. Residual 2 applies (`includes()` content-type check).
 
 ### 4. The saved API key is readable by other local accounts
-`lib/storage.ts:L122–128, L232–244` — **Lane C (1st)**
+`lib/storage.ts:L122–128, L232–244` — **Lane C (1st) — DONE (`be71570`)**
 
 - **What this is:** Server and CLI mode save the Gemini key inside the JSON store.
 - **Problem:** File permissions come from the process defaults. The isolated test created a `0664` file, which allows other accounts to read it.
@@ -73,9 +83,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - New store file is created with mode `0600` (`stat.mode & 0o777 === 0o600` in an isolated `RADAR_STORE_PATH` test).
   - A pre-existing `0664` store is tightened to `0600` on next write (or load) without changing its contents.
   - CLI/server persistence only; no change to `chrome.storage` behavior. `lib/storage.ts` bundle-safety preserved (`node:fs` stays inside the CLI branch).
+- **Result:** store + tmp + lock files created/chmodded `0600`; pre-existing `0664` tightened on load/write; `tests/storage-integrity.test.ts` perm case passes; `bun run build:ext` ok.
 
 ### 5. A rejected backup can still change saved data
-`lib/storage.ts:L397–476` — **Lane C (2nd)**
+`lib/storage.ts:L397–476` — **Lane C (2nd) — DONE (`be71570`)**
 
 - **What this is:** Backup import merges external JSON into local state.
 - **Problem:** Validation is incomplete and writes start before all fields are checked. A backup with `seenVideoIds: 42` returned an error after changing topics; another backup successfully stored a numeric topic.
@@ -86,9 +97,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - One shared validator (in `lib/storage.ts`, reused by `importBackupJson`, `server.ts` `/api/sync`, and `ui/standalone-entry.ts` `/api/sync` — no duplicate copies) checks, **before any write**: raw size ≤ 10 MiB; `sync.topics` is an array of non-empty strings (≤ 200 chars each); `pinnedChannels[]` have string `channelId`/`channelName`/`topic`; `topicMeta` values are objects with optional boolean `starred`; `minDurationSec` is a finite number ≥ 0; `telemetryOptIn` is boolean if present; `digests` is a record whose values have a string `topic`, string `generatedAt`, and a `videos[]` array where each video has string `videoId`/`title`/`channelName`/`url` and, if present, `chapterBreakdown[]` (`timestamp`/`sectionTitle` strings, `keyPoints` string[]) and `typeSpecificDetails[]` (`label` string, `items` string[]); `seenVideoIds` is a string array; `metrics`, if present, has only finite numbers ≥ 0.
   - Atomicity test: importing `{ seenVideoIds: 42 }` and `{ sync: { topics: [42] } }` each return an error and leave the store **byte-identical** (CLI path) with no revision bump; `POST /api/sync` with `topics: [42]` returns `400` and `GET /api/state` is unchanged, in both server and standalone route tables.
   - Valid backups (existing phase-4 import tests) still merge without duplicates, still exclude the API key, and still respect the free-topic clamp.
+- **Result:** shared `validateSyncValue` + `parseAndValidateBackup` (10 MiB byte check, element types, digest/metrics shapes) reused by `importBackupJson`, server `/api/sync`, standalone `/api/sync`; rejected imports leave store byte-identical with no revision bump (atomicity cases pass); valid-merge tests still green.
 
 ### 6. Two extension scans can acquire the same lock
-`lib/engine.ts:L52–98` — **Lane D (1st)**
+`lib/engine.ts:L52–98` — **Lane D (1st) — DONE (`8bfc011`)**
 
 - **What this is:** The extension lock should prevent simultaneous paid scans.
 - **Problem:** Reading and setting `chrome.storage.local` are separate operations. A concurrent harness using the real lock implementation returned `[true, true]` for two competing scans.
@@ -99,9 +111,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - With `navigator.locks` available, the scan body runs inside `navigator.locks.request("radar-scan", …)` (or equivalent held-for-scan Web Lock); a second concurrent `runStandaloneScan` returns `409 scan_in_progress` **before** calling `search`, and the first scan's digest/metrics/seen writes complete exactly once.
   - Concurrency test uses the **real** default lock (not the injected fake): two simultaneous scans yield `[200, 409]` (previously `[true, true]` at acquire level), and the lock is released after success, failure, and provider-error paths (existing `tests/engine.test.ts` lock tests still pass).
   - If `navigator.locks` is unavailable, the storage-key fallback remains but the code carries a `shortcut:` comment naming the residual race.
+- **Result:** scan body runs inside `navigator.locks.request("radar-scan", { ifAvailable: true })` with capability probe (name-blind shims fall back to the kept `acquireLock`/`releaseLock` seam); real-lock concurrency test yields `[200, 409]` with loser never reaching `search`; old `tests/engine.test.ts` lock tests green; Bun/CLI fallback is now a real in-memory mutex (was allow-all).
 
 ### 7. Network stalls can leave scans running indefinitely
-`lib/youtube.ts:L143–146, L292–335, L390`; `server.ts:L347–365` — **Lane D (2nd)**
+`lib/youtube.ts:L143–146, L292–335, L390`; `server.ts:L347–365` — **Lane D (2nd) — DONE (`8bfc011`)**
 
 - **What this is:** Scans depend on YouTube search, player, caption and RSS requests.
 - **Problem:** Those requests have no explicit cancellation deadline. After ten minutes, the scan lock expires without stopping the old work, allowing another scan to overlap it.
@@ -112,9 +125,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - Every direct `fetch` in `lib/youtube.ts` (player, caption, RSS) carries an `AbortSignal` with a deadline (default 30 s; injectable/shortenable for tests — no test may wait 30 s or 10 min of wall clock).
   - Scan-level deadline (server `runScan` and engine `runStandaloneScan`): when it fires, the scan aborts, releases its lock, and — critically — a superseded/late scan performs **no** digest, metrics, or seen writes afterward. Test: stub a hanging transcript fetch with a short injected deadline; assert the scan settles promptly with an error, the lock is free, and no writes occurred; then a replacement scan succeeds and its digest is not overwritten when the old stub resolves.
   - Innertube calls: either wired to a real cancellation mechanism (name it in the diff) or explicitly listed as bounded-but-not-cancelled in a `shortcut:` comment. A `Promise.race` timeout alone does not satisfy "cancellable" and must not be described as cancellation.
+- **Result:** direct fetches (player/caption/RSS) via `fetchWithDeadline` (AbortSignal + 30 s default, injectable); scan-level deadline in both pipelines (`504 scan_timeout`, lock freed, superseded body writes guarded off — no digest/metrics/seen, no synthesis spend); Innertube search/getInfo honestly marked bounded-but-not-cancelled via `shortcut:` (no per-call AbortSignal in youtubei.js singleton). Hanging-transcript + replacement-survival tests pass.
 
 ### 8. File-write failures can permanently disable saving or erase the store
-`lib/storage.ts:L103–129` — **Lane C (3rd)**
+`lib/storage.ts:L103–129` — **Lane C (3rd) — DONE (`be71570`)**
 
 - **What this is:** CLI/server persistence uses a promise queue and one JSON file.
 - **Problem:** One failed write leaves the queue rejected, so later writes fail even after the disk problem is fixed; I reproduced this. Writes also overwrite the live file directly, while malformed JSON is silently treated as a fresh store.
@@ -126,9 +140,10 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - Queue recovery test: force one write to fail (e.g. unwritable path), restore writability, and the next `saveSyncState`/`updateMetrics` succeeds without a process restart.
   - Missing file (`ENOENT`) → defaults as today. Corrupt/unparseable file → an explicit error (named in the diff) and the corrupt file is left **unchanged** on disk — never silently replaced with defaults.
   - Existing self-checks still pass: `bun -e 'import { runSelfChecks } from "./index.ts"; await runSelfChecks()'` (covers concurrent `saveSyncState`/`updateMetrics`).
+- **Result:** temp-file + rename writes; queue recovery via `catch`-before-`then` (house pattern); `ENOENT` → defaults, corrupt → `CorruptStoreError` with file untouched; queue-recovery + corrupt-unchanged tests pass; self-checks green.
 
 ### 9. CLI and server processes overwrite each other’s changes
-`lib/storage.ts:L100–129` — **Lane C (4th)**
+`lib/storage.ts:L100–129` — **Lane C (4th) — DONE (`be71570`)**
 
 - **What this is:** Both modes share the same file but keep separate in-memory copies.
 - **Problem:** Write serialization works only within one process. In an isolated two-process test, one process saved new topics; a metrics update from the other restored the old topics.
@@ -139,11 +154,12 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - Mechanism (worker's choice, no new dependency): e.g. an exclusive lock file at `${CLI_STORE_PATH}.lock` created with `wx`, containing the owner pid; a stale lock whose pid is dead is reclaimed. Acquired before the first CLI-store write (server: at startup/first write; CLI: per invocation) and released on clean exit.
   - Two-process test (isolated `RADAR_STORE_PATH`, like `tests/helpers/topic-lifecycle-worker.ts` spawns separate processes): process A holds the store and saves new topics; process B's write attempt fails fast with a clear, named error (e.g. `store_locked` / "store is in use by another process") and A's topics survive; after A exits, B writes successfully; a lock left by a dead pid does not wedge B.
   - Browser/IndexedDB path unaffected; `lib/storage.ts` bundle-safety preserved.
+- **Result:** `${CLI_STORE_PATH}.lock` (`wx`, 0600, owner pid, dead-pid reclaim, exit-hook release); second writer fails fast with `StoreLockedError` → `409` on `/api/sync`; holder-exits + stale-lock-reclaimed cases pass; browser path untouched.
 
 ## Should fix
 
 ### 10. Rescanning pays to summarize unchanged videos again
-`server.ts:L115–129`; `lib/engine.ts:L158–174`; `lib/storage.ts:L283–302` — **Lane D (3rd)**
+`server.ts:L115–129`; `lib/engine.ts:L158–174`; `lib/storage.ts:L283–302` — **Lane D (3rd) — DONE (`8bfc011`)**
 
 - **What this is:** Every scan fetches transcripts and generates fresh summaries.
 - **Problem:** Saved summaries and seen-video IDs are not checked before summarization. Two identical three-video scans produced six summary calls and two synthesis calls in the isolated harness.
@@ -155,6 +171,7 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - If the final selected video IDs **and** their summaries are identical to the previous digest's, skip synthesis and keep the previous synthesis/subtopics.
   - Harness test (mocked search/transcript/summarize/synthesize, as in `tests/engine.test.ts` / `tests/helpers/server-quota-worker.ts`): two identical 3-video scans → summarize called 3 times total (not 6), synthesize called once total (not twice); a scan where one video changes → exactly 1 new summarize call. Applies to both `server.ts` `runScan` and `lib/engine.ts` `runStandaloneScan`.
   - Metrics/seen semantics on a fully-reused scan are defined in the diff and asserted (no double-counted `videosSummarized` for reused videos).
+- **Result:** per-topic reuse from the topic's previous digest (`indexByVideoId`, no cross-topic cache) in both pipelines; identical selection skips synthesis; rescan test: 3 summarizes total, 1 synthesis total, `videosSummarized: 0` on full reuse, 1-video change → exactly 1 new summarize; reused videos not re-marked seen.
 
 ## Orchestration protocol (how sub-agents run this plan)
 
@@ -195,14 +212,25 @@ Rules: always resume the **latest** `runId` (every resume returns a new one); `r
 - Parent personally re-runs: `bun test`, `bun test tests/phase4-contract.test.ts`, `bun test tests/youtube-parser-guard.test.ts`, and the self-checks — worker-reported output does not substitute.
 - Each item's Acceptance bullet is checked off against a test or a traced line, not against the worker's summary. Anything unverifiable (e.g. item 7 Innertube cancellation) stays listed as a residual risk, not silently closed.
 
-## Verification (original audit)
+## Verification (final, 2026-11-01)
 
-- **70 tests passed**, plus isolated self-checks.
-- Browser checks confirmed HTML execution and cross-origin writes.
-- Storage, lock and network-listening checks used temporary stores.
-- `bun audit --json` reported no known dependency vulnerabilities.
-- No repository files changed during the audit; this report was saved afterward at the user's request.
+- Unit suite (`bun test $(ls tests/*.test.ts)`, Playwright `.spec.ts` excluded — residual 6): **87 pass, 0 fail** (A+B: 74; C: 82; D: 87).
+- Contract (`tests/phase4-contract.test.ts`, server on 3459, isolated store): **11 pass**.
+- Lane D gate (engine + backfill + contract): **31 pass**; old `tests/engine.test.ts` green unmodified.
+- Playwright (`bunx playwright test`, server on 3459): `tests/dashboard-xss.spec.ts` **4 passed**; `tests/responsive-layout.spec.ts` still green.
+- Self-checks (`runSelfChecks`): pass. `bun run build:ext`: ok (bundle-safe; build output reverted from the diff).
+- Original audit baseline: 70 tests passed; `bun audit --json` clean. Real-network scan contract test deliberately skipped (unchanged).
 
-**Verdict:** Fix dashboard HTML injection and server access boundaries first, then scan locking and persistence.
+**Verdict:** all 10 items fixed in lane order (A+B → C → D). Residuals below are the only open threads.
 
-**Not checked:** Live YouTube/Gemini performance, paid calls, full extension acceptance tests or a fresh release package. The real-network scan contract test was deliberately skipped.
+**Not checked:** Live YouTube/Gemini performance, paid calls, full extension acceptance tests, fresh release package.
+
+## Residual risks (accepted, not silently closed)
+
+1. `javascript:` URL scheme — `v.url` is escaped but not scheme-checked; a poisoned backup could render a clickable `javascript:` href. Follow-up: allowlist `http(s):` in dashboard render.
+2. `isJsonContent` uses `includes("application/json")` — trivially permissive (`text/plain; application/json` would pass). Follow-up: `startsWith` check.
+3. Cosmetic: `*/export async` missing newline at `lib/storage.ts:488` — fix on next touch.
+4. Innertube search/getInfo bounded-but-not-cancelled (youtubei.js singleton takes no per-call signal) — documented via `shortcut:`; upgrade to per-scan session if hangs observed.
+5. `chrome.storage` get-then-set race remains as fallback — documented via `shortcut:`; Web Lock is the real guard where available.
+6. Plain `bun test` picks up Playwright `.spec.ts` files (6 pre-existing failures on main, confirmed via stash baseline) — run the unit set + `bunx playwright test` separately.
+7. Extension smoke not re-run after C/D (no UI-affecting changes there); B covered by the XSS spec.
