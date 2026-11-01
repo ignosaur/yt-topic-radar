@@ -7,7 +7,7 @@
  *
  * Run:
  *   PORT=3459 bun run server.ts &
- *   bunx playwright test tests/responsive-layout.spec.ts
+ *   bunx playwright test tests/e2e/responsive-layout.pw.ts
  *
  * The server URL is read from the BASE_URL env variable (default: http://localhost:3459).
  * Use a port other than 3456 so CI does not collide with the dev server.

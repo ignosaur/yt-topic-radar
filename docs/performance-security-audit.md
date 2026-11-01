@@ -39,9 +39,9 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
 - **If we skip it:** Opening a poisoned digest can run code with dashboard access. Chrome extension policy limits inline scripts, but injected HTML remains unsafe.
 - **Acceptance:**
   - Every sink listed above passes through `esc()` (text and attribute contexts); no other `innerHTML` template interpolates state/digest data unescaped. Verify by grepping `innerHTML` templates in `ui/digest.js`, not by spot-checking one field.
-  - New Playwright test (alongside `tests/responsive-layout.spec.ts`, which already uses `bunx playwright test` against a spawned server): seed a digest + topic containing `<img src=x onerror=...>`, `"><svg onload=...>`, and `</button><script>...` payloads in topic name, `crossVideoSynthesis`, chapter title/keyPoint, detail label/item, and side-panel notes; assert no payload element is created, no script executes (e.g. `window.__xss` stays unset), and the literal text is visible.
+  - New Playwright test (alongside `tests/e2e/responsive-layout.pw.ts`, run via explicit `bunx playwright test` path against a spawned server): seed a digest + topic containing `<img src=x onerror=...>`, `"><svg onload=...>`, and `</button><script>...` payloads in topic name, `crossVideoSynthesis`, chapter title/keyPoint, detail label/item, and side-panel notes; assert no payload element is created, no script executes (e.g. `window.__xss` stays unset), and the literal text is visible.
   - Existing escaped fields still render (topic list, pinned channels, subtopic pills clickable via `data-*`).
-- **Result:** all traced sinks escaped (`esc()` text + attributes; `encodeURIComponent`/`Number()` hardening in side panel); `tests/dashboard-xss.spec.ts` 4 passed (main-digest exec, literal-text render, benign fields, side-panel exec). Residual 1 applies (`javascript:` href scheme).
+- **Result:** all traced sinks escaped (`esc()` text + attributes; `encodeURIComponent`/`Number()` hardening in side panel); `tests/e2e/dashboard-xss.pw.ts` 5 passed (main-digest exec, literal-text render, benign fields, side-panel exec, non-http-URL case). Residual 1 CLOSED in micro-lane (see Residual risks).
 
 ### 2. The “local” server accepts network connections without authentication
 `server.ts:L189–200` — **Lane A — DONE (`2787b61`)**
@@ -69,7 +69,7 @@ Yes — reorganize into 4 lanes. Reason, traced: items 4/5/8/9 all mutate `lib/s
   - If `Origin` is absent (curl/CLI/tests) or allowlisted, behavior is unchanged.
   - JSON routes (`/api/sync`, `/api/entitlements`, `/api/metrics`, `/api/key`, `/api/scan`) reject a non-JSON `Content-Type` (allow `application/json; charset=...`) with `400`/`415` before parsing; `/api/backup/import` keeps accepting the raw body from `ui/digest.js:1224` but is Origin-checked and size/validation-gated by item 5.
   - Contract tests: untrusted-Origin `POST /api/sync` and `POST /api/key` return `403` and `GET /api/state` shows no change; `text/plain` `POST /api/sync` is rejected; existing phase-4 tests (which send no `Origin`) still pass.
-- **Result:** pre-handler gate (`originBlocked` → `403 forbidden_origin`; JSON routes → `415` on non-JSON; import keeps raw body + Origin check) in `server.ts`; all new + existing contract tests pass. Residual 2 applies (`includes()` content-type check).
+- **Result:** pre-handler gate (`originBlocked` → `403 forbidden_origin`; JSON routes → `415` on non-JSON; import keeps raw body + Origin check) in `server.ts`; all new + existing contract tests pass. Residual 2 CLOSED in micro-lane (see Residual risks).
 
 ### 4. The saved API key is readable by other local accounts
 `lib/storage.ts:L122–128, L232–244` — **Lane C (1st) — DONE (`be71570`)**
@@ -203,7 +203,7 @@ Rules: always resume the **latest** `runId` (every resume returns a new one); `r
 | Lane | Worker/reviewer gate | Reviewer focus |
 |---|---|---|
 | A | `bun test tests/phase4-contract.test.ts` (server on 3459, isolated store) + new Origin/hostname tests | Rejection happens *before* handlers; no-Origin clients unaffected |
-| B | New Playwright XSS test + `bunx playwright test tests/responsive-layout.spec.ts` still green | Every `innerHTML` interpolation escaped; attributes included |
+| B | New Playwright XSS test + `bunx playwright test tests/e2e/responsive-layout.pw.ts` still green | Every `innerHTML` interpolation escaped; attributes included |
 | C | `bun test` + `bun -e 'import { runSelfChecks } from "./index.ts"; await runSelfChecks()'` + new storage two-process/atomicity tests | Validate-before-first-write; queue recovery; bundle-safety of `lib/storage.ts` |
 | D | `bun test tests/engine.test.ts tests/scan-backfill.test.ts` + `bun test tests/phase4-contract.test.ts` | Web Lock held for whole scan; superseded scan writes nothing; reuse counts |
 
@@ -217,7 +217,8 @@ Rules: always resume the **latest** `runId` (every resume returns a new one); `r
 - Unit suite (`bun test $(ls tests/*.test.ts)`, Playwright `.spec.ts` excluded — residual 6): **87 pass, 0 fail** (A+B: 74; C: 82; D: 87).
 - Contract (`tests/phase4-contract.test.ts`, server on 3459, isolated store): **11 pass**.
 - Lane D gate (engine + backfill + contract): **31 pass**; old `tests/engine.test.ts` green unmodified.
-- Playwright (`bunx playwright test`, server on 3459): `tests/dashboard-xss.spec.ts` **4 passed**; `tests/responsive-layout.spec.ts` still green.
+- Playwright (`bunx playwright test`, server on 3459): `tests/e2e/dashboard-xss.pw.ts` **5 passed**; `tests/e2e/responsive-layout.pw.ts` 6/7 (1 pre-existing backdrop failure, also fails on clean tree).
+- Micro-lane (residuals 1, 2, 3, 6): unit set **88 pass / 0 fail**; lane gate (contract, storage-integrity, scan-lifecycle ×2, engine, backfill) **45 pass / 0 fail**; independent reviewer sign-off, no blockers.
 - Self-checks (`runSelfChecks`): pass. `bun run build:ext`: ok (bundle-safe; build output reverted from the diff).
 - Original audit baseline: 70 tests passed; `bun audit --json` clean. Real-network scan contract test deliberately skipped (unchanged).
 
@@ -227,10 +228,10 @@ Rules: always resume the **latest** `runId` (every resume returns a new one); `r
 
 ## Residual risks (accepted, not silently closed)
 
-1. `javascript:` URL scheme — `v.url` is escaped but not scheme-checked; a poisoned backup could render a clickable `javascript:` href. Follow-up: allowlist `http(s):` in dashboard render.
-2. `isJsonContent` uses `includes("application/json")` — trivially permissive (`text/plain; application/json` would pass). Follow-up: `startsWith` check.
-3. Cosmetic: `*/export async` missing newline at `lib/storage.ts:488` — fix on next touch.
+1. ~~`javascript:` URL scheme~~ — CLOSED in micro-lane: `ui/digest.js:715` renders `<a>` only for `/^https?:\/\//i`, other schemes fall back to `<span>`; covered by new `tests/e2e/dashboard-xss.pw.ts` case (5/5 green); reviewer swept remaining `href=`/`src=` sinks (iframe + watch link are `encodeURIComponent`-built, safe).
+2. ~~`isJsonContent` permissive~~ — CLOSED in micro-lane: strict `ct === "application/json" || ct.startsWith("application/json;")` (closes both the reported bypass and the `application/json-evil` prefix nuance); contract test covers tricky + charset variants (12/12 green).
+3. ~~Cosmetic `*/export async` join~~ — CLOSED in micro-lane (one-line split, body untouched).
 4. Innertube search/getInfo bounded-but-not-cancelled (youtubei.js singleton takes no per-call signal) — documented via `shortcut:`; upgrade to per-scan session if hangs observed.
 5. `chrome.storage` get-then-set race remains as fallback — documented via `shortcut:`; Web Lock is the real guard where available.
-6. Plain `bun test` picks up Playwright `.spec.ts` files (6 pre-existing failures on main, confirmed via stash baseline) — run the unit set + `bunx playwright test` separately.
+6. ~~Playwright specs break bare `bun test`~~ — CLOSED in micro-lane: specs renamed to `tests/e2e/*.pw.ts` + minimal `playwright.config.ts` (`testDir`/`testMatch`); tracked files no longer discovered by bun (unit set 88/88). Remaining bare-`bun test` red is gitignored root `demo_*.spec.ts` throwaways (not product code per AGENTS.md, out of scope) — run the unit set + explicit `bunx playwright test <path>` separately. Note: `tests/e2e/responsive-layout.pw.ts` has 1 pre-existing failure ("backdrop closes the drawer"), reproduced on clean tree — environmental, untouched by this work.
 7. Extension smoke not re-run after C/D (no UI-affecting changes there); B covered by the XSS spec.

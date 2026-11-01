@@ -61,7 +61,7 @@ function originBlocked(req: Request): boolean {
 
 function isJsonContent(req: Request): boolean {
   const ct = req.headers.get("Content-Type") || "";
-  return ct.includes("application/json");
+  return ct === "application/json" || ct.startsWith("application/json;");
 }
 
 // POST routes that require a JSON body. /api/backup/import is intentionally

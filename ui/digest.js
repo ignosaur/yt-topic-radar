@@ -712,7 +712,7 @@ function renderMainDigest() {
                 <span class="text-slate-400">Signal ${esc(v.signalScore)}/100 • ${esc(v.durationText)}</span>
               </div>
               <h3 class="text-lg font-bold text-white leading-snug">
-                <a href="${esc(v.url)}" target="_blank" class="hover:text-red-400 transition">${idx + 1}. ${esc(v.title)}</a>
+                ${/^https?:\/\//i.test(String(v.url ?? "")) ? `<a href="${esc(v.url)}" target="_blank" class="hover:text-red-400 transition">${idx + 1}. ${esc(v.title)}</a>` : `<span>${idx + 1}. ${esc(v.title)}</span>`}
               </h3>
               <div class="text-xs text-slate-400">Channel: <span class="text-slate-200 font-medium">${esc(v.channelName)}</span></div>
             </div>

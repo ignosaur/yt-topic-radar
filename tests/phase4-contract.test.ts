@@ -250,3 +250,20 @@ test("JSON routes reject non-JSON Content-Type, import keeps raw body", async ()
   });
   expect(evilImport.status).toBe(403);
 });
+
+test("tricky Content-Type rejected, charset suffix still passes", async () => {
+  // 'text/plain; application/json' must not sneak past the JSON gate (415)
+  const tricky = await fetch(`${BASE}/api/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain; application/json" },
+    body: "{}",
+  });
+  expect(tricky.status).toBe(415);
+  // charset-suffixed JSON still passes the gate (may 400 on body, never 415)
+  const charset = await fetch(`${BASE}/api/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json; charset=utf-8" },
+    body: "{}",
+  });
+  expect(charset.status).not.toBe(415);
+});

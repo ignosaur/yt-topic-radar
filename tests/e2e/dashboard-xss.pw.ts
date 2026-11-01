@@ -12,7 +12,7 @@
  *
  * Run:
  *   PORT=3459 bun run server.ts &
- *   bunx playwright test tests/dashboard-xss.spec.ts
+ *   bunx playwright test tests/e2e/dashboard-xss.pw.ts
  */
 
 import { test, expect } from "@playwright/test";
@@ -70,6 +70,21 @@ function poisonedState() {
                 ],
               },
             ],
+          },
+          {
+            videoId: "js-scheme-video",
+            url: `javascript:window.__xss='href'`,
+            title: "JS-SCHEME-MARKER sneaky title",
+            channelId: "js-scheme-channel",
+            channelName: "JS Scheme Channel",
+            videoType: "tutorial",
+            worthWatchingFull: "Yes",
+            worthWatchingReason: "scheme check",
+            signalScore: 50,
+            durationText: "1:23",
+            coreThesis: "JS scheme core takeaway.",
+            chapterBreakdown: [],
+            typeSpecificDetails: [],
           },
           {
             videoId: "clean-video-id-123",
@@ -174,6 +189,29 @@ test.describe("dashboard XSS sinks stay escaped", () => {
     await expect(container).toContainText("The clean core takeaway.");
     await expect(container).toContainText("Clean section");
     await expect(container).toContainText("Verdict: Yes");
+
+    expect(await xssFlag(page)).toBeNull();
+  });
+
+  test("non-http video URLs render as non-clickable text", async ({ page }) => {
+    await gotoPoisoned(page);
+
+    // No anchor anywhere in the digest may carry a javascript: href.
+    const jsHrefs = await page
+      .locator('#digestContainer a[href^="javascript:"]')
+      .count();
+    expect(jsHrefs, "no javascript:-scheme href renders").toBe(0);
+
+    // The sneaky title still renders as literal, non-clickable text.
+    const container = page.locator("#digestContainer");
+    await expect(container).toContainText("JS-SCHEME-MARKER sneaky title");
+    // Its heading must be a span, not a link.
+    const heading = container.locator("h3", { hasText: "JS-SCHEME-MARKER" });
+    await expect(heading.locator("a")).toHaveCount(0);
+    // Benign https: links still render as links.
+    await expect(
+      container.locator('a[href^="https://www.youtube.com/watch"]')
+    ).not.toHaveCount(0);
 
     expect(await xssFlag(page)).toBeNull();
   });

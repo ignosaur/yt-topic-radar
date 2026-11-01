@@ -485,7 +485,8 @@ export async function updateMetrics(
 
 /**
  * 1-Click Export Backup JSON (excludes API key by default for safety).
- */export async function exportBackupJson(): Promise<string> {
+ */
+export async function exportBackupJson(): Promise<string> {
   const metrics = await updateMetrics({ backupsExported: 1 });
   const [sync, digests, seen] = await Promise.all([
     getSyncState(),
