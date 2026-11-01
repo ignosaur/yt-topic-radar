@@ -49,6 +49,27 @@ const ALLOWED_ORIGINS = [
   /^chrome-extension:\/\//,
 ];
 
+function originBlocked(req: Request): boolean {
+  const origin = req.headers.get("Origin");
+  if (!origin) return false; // no-Origin clients (curl, same-origin, tests) unaffected
+  return !ALLOWED_ORIGINS.some((re) => re.test(origin));
+}
+
+function isJsonContent(req: Request): boolean {
+  const ct = req.headers.get("Content-Type") || "";
+  return ct.includes("application/json");
+}
+
+// POST routes that require a JSON body. /api/backup/import is intentionally
+// excluded: the dashboard posts it as raw text/plain (see digest.js import).
+const JSON_POST_ROUTES = new Set([
+  "/api/sync",
+  "/api/entitlements",
+  "/api/metrics",
+  "/api/key",
+  "/api/scan",
+]);
+
 function corsHeaders(req: Request): Record<string, string> {
   const origin = req.headers.get("Origin") || "";
   const allowed = ALLOWED_ORIGINS.some((re) => re.test(origin));
@@ -188,6 +209,7 @@ async function runScan(
 
 const server = Bun.serve({
   port: PORT,
+  hostname: "127.0.0.1",
   idleTimeout: 120,
   async fetch(req) {
     const cors = corsHeaders(req);
@@ -200,6 +222,23 @@ const server = Bun.serve({
       Response.json(data, { status, headers: cors });
 
     const url = new URL(req.url);
+
+    // Boundary gate: every POST mutation route rejects an untrusted Origin
+    // with 403 before any handler runs (no state change, no scan). Requests
+    // without an Origin header (curl, same-origin, tests) pass through.
+    if (
+      req.method === "POST" &&
+      (JSON_POST_ROUTES.has(url.pathname) ||
+        url.pathname === "/api/backup/import")
+    ) {
+      if (originBlocked(req)) return json({ error: "forbidden_origin" }, 403);
+      if (
+        JSON_POST_ROUTES.has(url.pathname) &&
+        !isJsonContent(req)
+      ) {
+        return json({ error: "unsupported_media_type" }, 415);
+      }
+    }
 
     // Serve the Extension Digest UI
     if (url.pathname === "/" || url.pathname === "/digest.html") {

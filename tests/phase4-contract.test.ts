@@ -182,3 +182,71 @@ test("concurrent scans: second gets 409 scan_in_progress", async () => {
     );
   }
 }, 90000);
+
+test("hostname binds 127.0.0.1", async () => {
+  const res = await fetch(`http://127.0.0.1:${PORT}/api/state`);
+  expect(res.ok).toBe(true);
+});
+
+test("untrusted Origin POST rejected 403 before handler, no state change", async () => {
+  const before: any = await (await fetch(`${BASE}/api/state`)).json();
+  const evil = { Origin: "https://evil.example" };
+  const syncRes = await fetch(`${BASE}/api/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...evil },
+    body: JSON.stringify({ topics: ["Evil Topic"] }),
+  });
+  expect(syncRes.status).toBe(403);
+  const scanRes = await fetch(`${BASE}/api/scan`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", ...evil },
+    body: JSON.stringify({ topic: "Evil Topic", maxVideos: 1 }),
+  });
+  expect(scanRes.status).toBe(403);
+  const after: any = await (await fetch(`${BASE}/api/state`)).json();
+  expect(after.sync.topics).toEqual(before.sync.topics);
+  // trusted Origin still works
+  const ok = await fetch(`${BASE}/api/metrics`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json", Origin: `http://localhost:${PORT}` },
+    body: JSON.stringify({ event: "timestampClick" }),
+  });
+  expect(ok.status).toBe(200);
+});
+
+test("JSON routes reject non-JSON Content-Type, import keeps raw body", async () => {
+  const bad = await fetch(`${BASE}/api/sync`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: "not json",
+  });
+  expect(bad.status).toBe(415);
+  // import accepts raw text/plain with no Origin (dashboard posts raw file text)
+  const state: any = await (await fetch(`${BASE}/api/state`)).json();
+  const backup = JSON.stringify({
+    version: 1,
+    exportedAt: new Date().toISOString(),
+    sync: {
+      topics: state.sync.topics,
+      pinnedChannels: [],
+      minDurationSec: 180,
+      topicMeta: {},
+      telemetryOptIn: false,
+    },
+    digests: {},
+    seenVideoIds: [],
+  });
+  const raw = await fetch(`${BASE}/api/backup/import`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain" },
+    body: backup,
+  });
+  expect(raw.status).toBe(200);
+  // import is still Origin-checked
+  const evilImport = await fetch(`${BASE}/api/backup/import`, {
+    method: "POST",
+    headers: { "Content-Type": "text/plain", Origin: "https://evil.example" },
+    body: backup,
+  });
+  expect(evilImport.status).toBe(403);
+});

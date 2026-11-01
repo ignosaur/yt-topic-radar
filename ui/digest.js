@@ -609,7 +609,7 @@ function renderMainDigest() {
     container.innerHTML = `
       <div class="bg-slate-900 border border-slate-800 rounded-xl p-8 text-center space-y-3 animate-pulse">
         <div class="text-3xl">🛰️</div>
-        <div class="text-lg font-semibold text-white">Scanning YouTube for "${activeTopic}"...</div>
+        <div class="text-lg font-semibold text-white">Scanning YouTube for "${esc(activeTopic)}"...</div>
         <p class="text-sm text-slate-400 max-w-md mx-auto">
           Searching recent uploads → Filtering out clickbait & shorts → Extracting timed transcripts → Running structured Gemini breakdown...
         </p>
@@ -624,7 +624,7 @@ function renderMainDigest() {
     container.innerHTML = `
       <div class="bg-slate-900/60 border border-slate-800 rounded-xl p-10 text-center space-y-3">
         <div class="text-3xl">🔭</div>
-        <div class="text-lg font-semibold text-slate-200">No digest generated for "${activeTopic}" yet</div>
+        <div class="text-lg font-semibold text-slate-200">No digest generated for "${esc(activeTopic)}" yet</div>
         <p class="text-sm text-slate-400 max-w-md mx-auto">
           Click <b>Scan Topic Now</b> in the top-right to discover the highest-signal YouTube videos and extract their complete timestamped breakdown.
         </p>
@@ -678,13 +678,13 @@ function renderMainDigest() {
           (c) => `
           <div class="border-l-2 border-slate-700 pl-3 py-1 space-y-1">
             <div class="flex items-center gap-2">
-              <button data-vid="${v.videoId}" data-vtitle="${encodeURIComponent(v.title)}" data-ts="${c.timestamp}" class="font-mono text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2 py-0.5 rounded border border-red-500/30 transition">
-                ▶ [${c.timestamp}]
+              <button data-vid="${esc(v.videoId)}" data-vtitle="${encodeURIComponent(v.title)}" data-ts="${esc(c.timestamp)}" class="font-mono text-xs bg-red-500/20 hover:bg-red-500/30 text-red-300 px-2 py-0.5 rounded border border-red-500/30 transition">
+                ▶ [${esc(c.timestamp)}]
               </button>
-              <span class="font-semibold text-slate-200 text-sm">${c.sectionTitle}</span>
+              <span class="font-semibold text-slate-200 text-sm">${esc(c.sectionTitle)}</span>
             </div>
             <ul class="list-disc list-inside text-slate-300 text-sm space-y-0.5 pl-1">
-              ${(c.keyPoints || []).map((kp) => `<li>${kp}</li>`).join("")}
+              ${(c.keyPoints || []).map((kp) => `<li>${esc(kp)}</li>`).join("")}
             </ul>
           </div>`
         )
@@ -694,9 +694,9 @@ function renderMainDigest() {
         .map(
           (d) => `
           <div class="bg-slate-950/70 border border-slate-800/80 rounded-lg p-3">
-            <div class="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">${d.label}</div>
+            <div class="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">${esc(d.label)}</div>
             <ul class="list-disc list-inside text-xs text-slate-300 space-y-1">
-              ${(d.items || []).map((item) => `<li>${item}</li>`).join("")}
+              ${(d.items || []).map((item) => `<li>${esc(item)}</li>`).join("")}
             </ul>
           </div>`
         )
@@ -707,9 +707,9 @@ function renderMainDigest() {
           <div class="flex items-start justify-between gap-4">
             <div class="space-y-1">
               <div class="flex flex-wrap items-center gap-2 text-xs">
-                <span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase">${v.videoType.replace("_", " ")}</span>
-                <span class="px-2 py-0.5 rounded border ${verdictColor} font-medium">Verdict: ${v.worthWatchingFull}</span>
-                <span class="text-slate-400">Signal ${v.signalScore}/100 • ${v.durationText}</span>
+                <span class="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-semibold uppercase">${esc(String(v.videoType).replace("_", " "))}</span>
+                <span class="px-2 py-0.5 rounded border ${verdictColor} font-medium">Verdict: ${esc(v.worthWatchingFull)}</span>
+                <span class="text-slate-400">Signal ${esc(v.signalScore)}/100 • ${esc(v.durationText)}</span>
               </div>
               <h3 class="text-lg font-bold text-white leading-snug">
                 <a href="${esc(v.url)}" target="_blank" class="hover:text-red-400 transition">${idx + 1}. ${esc(v.title)}</a>
@@ -757,7 +757,7 @@ function renderMainDigest() {
         <button id="btnReadSynthesis" class="text-xs bg-indigo-500/20 hover:bg-indigo-500/30 text-indigo-200 px-2.5 py-1 rounded border border-indigo-500/30">🔊 Read Synthesis</button>
       </div>
       ${skipNote}
-      <p class="text-sm text-slate-200 leading-relaxed">${digest.crossVideoSynthesis}</p>
+      <p class="text-sm text-slate-200 leading-relaxed">${esc(digest.crossVideoSynthesis)}</p>
       ${
         subtopicsHtml
           ? `<div class="pt-2 border-t border-slate-800/80 flex flex-wrap items-center gap-2">
@@ -927,25 +927,27 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
   const panel = el("videoSidePanel");
   panel.classList.remove("hidden");
   el("sidePanelTitle").textContent = title;
-  el("ytPlayerIframe").src = `https://www.youtube.com/embed/${videoId}?start=${startSec}&autoplay=1`;
-  syncYouTubeWatchTab(videoId, startSec);
+  const safeVid = encodeURIComponent(videoId);
+  const startNum = Number(startSec) || 0;
+  el("ytPlayerIframe").src = `https://www.youtube.com/embed/${safeVid}?start=${startNum}&autoplay=1`;
+  syncYouTubeWatchTab(videoId, startNum);
 
   const notes = el("sidePanelNotes");
-  const watchLinkHtml = `<a id="sidePanelYtWatchLink" href="https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${startSec}s" target="_blank" rel="noopener noreferrer" class="inline-block text-xs text-indigo-300 hover:underline">↗ Open on YouTube at ${formatTimestampFromSec(startSec)}</a>`;
+  const watchLinkHtml = `<a id="sidePanelYtWatchLink" href="https://www.youtube.com/watch?v=${safeVid}&t=${startNum}s" target="_blank" rel="noopener noreferrer" class="inline-block text-xs text-indigo-300 hover:underline">↗ Open on YouTube at ${esc(formatTimestampFromSec(startNum))}</a>`;
 
   if (videoObj) {
     notes.innerHTML = `
       ${watchLinkHtml}
       <div class="text-xs font-semibold uppercase text-red-400">Docked Summary Notes</div>
-      <p class="text-xs text-slate-300">${videoObj.coreThesis}</p>
+      <p class="text-xs text-slate-300">${esc(videoObj.coreThesis)}</p>
       <div class="space-y-2 pt-2">
         ${(videoObj.chapterBreakdown || [])
           .map(
             (c) => `
           <div class="p-2 rounded bg-slate-950 border border-slate-800">
-            <button data-jump="${parseTimestampToSec(c.timestamp)}" class="font-mono text-xs text-red-400 hover:underline">[${c.timestamp}] ${c.sectionTitle}</button>
+            <button data-jump="${parseTimestampToSec(c.timestamp)}" class="font-mono text-xs text-red-400 hover:underline">[${esc(c.timestamp)}] ${esc(c.sectionTitle)}</button>
             <ul class="list-disc list-inside text-xs text-slate-300 mt-1 space-y-0.5">
-              ${c.keyPoints.map((k) => `<li>${k}</li>`).join("")}
+              ${c.keyPoints.map((k) => `<li>${esc(k)}</li>`).join("")}
             </ul>
           </div>`
           )
@@ -956,10 +958,10 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
       b.addEventListener("click", () => {
         const s = Number(b.getAttribute("data-jump")) || 0;
         recordMetricEvent("timestampClick");
-        el("ytPlayerIframe").src = `https://www.youtube.com/embed/${videoId}?start=${s}&autoplay=1`;
+        el("ytPlayerIframe").src = `https://www.youtube.com/embed/${safeVid}?start=${s}&autoplay=1`;
         const watchLink = el("sidePanelYtWatchLink");
         if (watchLink) {
-          watchLink.href = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${s}s`;
+          watchLink.href = `https://www.youtube.com/watch?v=${safeVid}&t=${s}s`;
           watchLink.textContent = `↗ Open on YouTube at ${formatTimestampFromSec(s)}`;
         }
         syncYouTubeWatchTab(videoId, s);
