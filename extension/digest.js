@@ -395,6 +395,23 @@ function formatTimestampFromSec(sec) {
     return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
 }
+function openWatchAtTimestamp(videoId, startSec) {
+  let sec = Number(startSec) || 0, url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${sec}s`;
+  if (typeof chrome < "u" && chrome.tabs?.query)
+    try {
+      chrome.tabs.query({ url: "*://*.youtube.com/watch*" }, (tabs) => {
+        let match = Array.isArray(tabs) && tabs.find((t) => t.url && t.url.includes(`v=${videoId}`));
+        if (match && match.id != null)
+          chrome.tabs.update(match.id, { url });
+        else if (chrome.tabs.create)
+          chrome.tabs.create({ url });
+        else
+          window.open(url, "_blank", "noopener");
+      });
+      return;
+    } catch {}
+  window.open(url, "_blank", "noopener");
+}
 function syncYouTubeWatchTab(videoId, startSec) {
   if (typeof chrome > "u" || !chrome.tabs?.query)
     return;
@@ -842,6 +859,10 @@ async function speakText(text) {
   }, window.speechSynthesis.speak(utter), showToast("\uD83D\uDD0A Reading aloud... (click again to restart)");
 }
 function openSidePanelPlayer(videoId, title, startSec, videoObj) {
+  if (IS_EXTENSION_PAGE) {
+    el("videoSidePanel").classList.add("hidden"), openWatchAtTimestamp(videoId, startSec);
+    return;
+  }
   el("videoSidePanel").classList.remove("hidden"), el("sidePanelTitle").textContent = title;
   let safeVid = encodeURIComponent(videoId), startNum = Number(startSec) || 0;
   el("ytPlayerIframe").src = `https://www.youtube.com/embed/${safeVid}?start=${startNum}&autoplay=1`, syncYouTubeWatchTab(videoId, startNum);
@@ -873,9 +894,9 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
   else
     notes.innerHTML = watchLinkHtml;
 }
-var STANDALONE_ROUTE, API_BASE = "", origFetch, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", ttsVoices;
+var STANDALONE_ROUTE, API_BASE = "", origFetch, IS_EXTENSION_PAGE, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", ttsVoices;
 var init_digest = __esm(() => {
-  STANDALONE_ROUTE = typeof globalThis.__RADAR_STANDALONE__ === "function" ? globalThis.__RADAR_STANDALONE__ : null, origFetch = window.fetch;
+  STANDALONE_ROUTE = typeof globalThis.__RADAR_STANDALONE__ === "function" ? globalThis.__RADAR_STANDALONE__ : null, origFetch = window.fetch, IS_EXTENSION_PAGE = typeof chrome < "u" && Boolean(chrome.runtime?.getURL);
   window.fetch = function(input, init) {
     if (STANDALONE_ROUTE) {
       if (typeof input === "string" && input.startsWith("/api/"))

@@ -16,6 +16,10 @@ const API_BASE =
       ? "http://localhost:3456"
       : "";
 const origFetch = window.fetch;
+// Extension side-panel pages (chrome-extension://) cannot play YouTube embeds
+// (Error 153: no usable referrer) — timestamps there open the watch page instead.
+const IS_EXTENSION_PAGE =
+  typeof chrome !== "undefined" && Boolean(chrome.runtime?.getURL);
 window.fetch = function (input, init) {
   if (STANDALONE_ROUTE) {
     if (typeof input === "string" && input.startsWith("/api/")) {
@@ -254,6 +258,25 @@ function formatTimestampFromSec(sec) {
     return `${String(hrs).padStart(2, "0")}:${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
   }
   return `${String(mins).padStart(2, "0")}:${String(secs).padStart(2, "0")}`;
+}
+
+function openWatchAtTimestamp(videoId, startSec) {
+  const sec = Number(startSec) || 0;
+  const url = `https://www.youtube.com/watch?v=${encodeURIComponent(videoId)}&t=${sec}s`;
+  if (typeof chrome !== "undefined" && chrome.tabs?.query) {
+    try {
+      chrome.tabs.query({ url: "*://*.youtube.com/watch*" }, (tabs) => {
+        const match =
+          Array.isArray(tabs) &&
+          tabs.find((t) => t.url && t.url.includes(`v=${videoId}`));
+        if (match && match.id != null) chrome.tabs.update(match.id, { url });
+        else if (chrome.tabs.create) chrome.tabs.create({ url });
+        else window.open(url, "_blank", "noopener");
+      });
+      return;
+    } catch {}
+  }
+  window.open(url, "_blank", "noopener");
 }
 
 function syncYouTubeWatchTab(videoId, startSec) {
@@ -924,6 +947,13 @@ async function speakText(text) {
 }
 
 function openSidePanelPlayer(videoId, title, startSec, videoObj) {
+  if (IS_EXTENSION_PAGE) {
+    // Embeds can't play from chrome-extension:// (YT Error 153) — keep the
+    // panel hidden and jump straight to the timestamp on YouTube instead.
+    el("videoSidePanel").classList.add("hidden");
+    openWatchAtTimestamp(videoId, startSec);
+    return;
+  }
   const panel = el("videoSidePanel");
   panel.classList.remove("hidden");
   el("sidePanelTitle").textContent = title;
