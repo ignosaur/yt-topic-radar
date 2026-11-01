@@ -430,7 +430,7 @@ function deriveMetricsFromDigests(digests: Record<string, TopicDigest>): UsageMe
     ...DEFAULT_METRICS,
     scansCompleted: topics.length,
     videosSummarized,
-    slopVideosFiltered: topics.length * 8,
+    slopVideosFiltered: 0,
     secondsSaved,
   };
 }
@@ -474,13 +474,15 @@ const METRIC_KEYS = Object.keys(DEFAULT_METRICS) as (keyof UsageMetrics)[];
 export async function updateMetrics(
   delta: Partial<UsageMetrics>
 ): Promise<UsageMetrics> {
-  const current = await getMetrics();
-  const next = { ...current };
-  for (const k of METRIC_KEYS) {
-    next[k] = (current[k] || 0) + (delta[k] || 0);
-  }
-  await saveMetrics(next);
-  return next;
+  return withTopicWrite(async () => {
+    const current = await getMetrics();
+    const next = { ...current };
+    for (const k of METRIC_KEYS) {
+      next[k] = (current[k] || 0) + (delta[k] || 0);
+    }
+    await saveMetrics(next);
+    return next;
+  });
 }
 
 /**

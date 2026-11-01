@@ -1,7 +1,7 @@
 import { describe, expect, mock, test } from "bun:test";
 import { runStandaloneScan, type EngineDeps } from "../lib/engine";
 import type { VideoCandidate } from "../lib/youtube";
-import type { VideoSummary } from "../lib/summarizer";
+import { parseSummaryJson, type VideoSummary } from "../lib/summarizer";
 import type { UsageMetrics } from "../lib/storage";
 import { ProviderAvailabilityError, ProviderFailureError } from "../lib/provider-errors";
 
@@ -148,6 +148,24 @@ describe("runStandaloneScan", () => {
     expect(h.saveDigest.mock.calls.length).toBe(0);
     expect(h.updateMetrics.mock.calls.length).toBe(0);
     expect(h.markSeen.mock.calls.length).toBe(0);
+    expect(h.wasReleased()).toBe(true);
+  });
+  test("malformed video output is skipped and a valid replacement is saved", async () => {
+    const summarize = mock(async (_key: string, video: VideoCandidate) => {
+      if (video.videoId === "video-a") parseSummaryJson('{"private-provider-output":');
+      return summaryFor(video);
+    });
+    const h = makeHarness({ summarize });
+    const result = await runStandaloneScan("AI Agents", 1, "key", h.deps);
+    expect(result.status).toBe(200);
+    const body = result.body as { digest: { videos: VideoSummary[] }; skippedVideos: string[] };
+    expect(body.digest.videos.map(video => video.videoId)).toEqual(["video-b"]);
+    expect(body.skippedVideos).toEqual(["video-a"]);
+    expect(summarize.mock.calls.length).toBe(2);
+    expect(h.saveDigest.mock.calls.length).toBe(1);
+    expect(h.updateMetrics.mock.calls[0]?.[0].videosSummarized).toBe(1);
+    expect(h.markSeen.mock.calls.map(call => call[0])).toEqual(["video-b"]);
+    expect(JSON.stringify(result.body)).not.toContain("private-provider-output");
     expect(h.wasReleased()).toBe(true);
   });
   test("unexpected synthesis failure is sanitized and preserves state", async () => {

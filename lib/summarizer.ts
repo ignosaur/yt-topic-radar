@@ -273,7 +273,7 @@ CRITICAL RULES:
         responseSchema: SUMMARY_SCHEMA,
       },
     });
-    const parsed = JSON.parse(res.text || "{}");
+    const parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
 
@@ -289,13 +289,13 @@ CRITICAL RULES:
         responseSchema: SUMMARY_SCHEMA,
       },
     });
-    const parsed = JSON.parse(res.text || "{}");
+    const parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
 
   // Multi-window (> 25 mins): extract each 20-min window with max concurrency 2, then merge
   const mergedChapters: ChapterPoint[] = [];
-  let firstPassMeta: any = null;
+  let firstPassMeta: Record<string, unknown> | null = null;
 
   for (let i = 0; i < chunks.length; i++) {
     const chunk = chunks[i]!;
@@ -309,10 +309,10 @@ CRITICAL RULES:
         responseSchema: SUMMARY_SCHEMA,
       },
     });
-    const part = JSON.parse(res.text || "{}");
+    const part = parseSummaryJson(res.text);
     if (!firstPassMeta) firstPassMeta = part;
     if (Array.isArray(part.chapterBreakdown)) {
-      mergedChapters.push(...part.chapterBreakdown);
+      mergedChapters.push(...(part.chapterBreakdown as ChapterPoint[]));
     }
   }
 
@@ -322,7 +322,28 @@ CRITICAL RULES:
   });
 }
 
-function buildSummaryObject(video: VideoCandidate, raw: any): VideoSummary {
+/**
+ * Reject invalid Gemini JSON without leaking raw SyntaxErrors.
+ * Video-local output failures stay replaceable, unlike provider-wide outages.
+ */
+export function parseSummaryJson(text: string | undefined): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(text || "{}");
+  } catch {
+    throw new Error("Gemini returned unparseable JSON response");
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+    throw new Error("Gemini returned invalid JSON structure");
+  }
+  return parsed as Record<string, unknown>;
+}
+
+export function buildSummaryObject(video: VideoCandidate, raw: Record<string, unknown>): VideoSummary {
+  // Guard: an all-empty response indicates a degenerate model output.
+  if (!raw.coreThesis && !Array.isArray(raw.chapterBreakdown)) {
+    throw new Error("Gemini returned empty summary structure");
+  }
   return {
     videoId: video.videoId,
     title: video.title,
@@ -332,14 +353,14 @@ function buildSummaryObject(video: VideoCandidate, raw: any): VideoSummary {
     durationSec: video.durationSec,
     durationText: video.durationText,
     signalScore: video.signalScore,
-    videoType: raw.videoType || "news_analysis",
-    coreThesis: raw.coreThesis || "",
-    chapterBreakdown: Array.isArray(raw.chapterBreakdown) ? raw.chapterBreakdown : [],
+    videoType: (raw.videoType as VideoType) || "news_analysis",
+    coreThesis: (raw.coreThesis as string) || "",
+    chapterBreakdown: Array.isArray(raw.chapterBreakdown) ? raw.chapterBreakdown as ChapterPoint[] : [],
     typeSpecificDetails: Array.isArray(raw.typeSpecificDetails)
-      ? raw.typeSpecificDetails
+      ? raw.typeSpecificDetails as VideoSummary["typeSpecificDetails"]
       : [],
-    worthWatchingFull: raw.worthWatchingFull || "Skim timestamps",
-    worthWatchingReason: raw.worthWatchingReason || "",
+    worthWatchingFull: (raw.worthWatchingFull as VideoSummary["worthWatchingFull"]) || "Skim timestamps",
+    worthWatchingReason: (raw.worthWatchingReason as string) || "",
     summarizedAt: new Date().toISOString(),
   };
 }
@@ -379,11 +400,11 @@ export async function synthesizeTopicDigest(
     },
   });
 
-  const parsed = JSON.parse(res.text || "{}");
+  const parsed = parseSummaryJson(res.text);
   return {
-    crossVideoSynthesis: parsed.crossVideoSynthesis || "",
+    crossVideoSynthesis: (parsed.crossVideoSynthesis as string) || "",
     suggestedSubtopics: Array.isArray(parsed.suggestedSubtopics)
-      ? parsed.suggestedSubtopics.slice(0, 4)
+      ? (parsed.suggestedSubtopics as string[]).slice(0, 4)
       : [],
   };
 }

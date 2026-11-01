@@ -26,6 +26,7 @@ mock.module("../../lib/summarizer", () => ({
     }
     if (mode === "first" || (mode === "third" && video.videoId === "c")) throw new ProviderAvailabilityError("quota_exhausted");
     if (mode === "provider") throw new ProviderFailureError();
+    if (mode === "malformed" && video.videoId === "a") summarizer.parseSummaryJson('{"private-provider-output":');
     return { videoId: video.videoId };
   },
   synthesizeTopicDigest: async () => {

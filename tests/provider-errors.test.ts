@@ -1,6 +1,6 @@
 import { test, expect } from "bun:test";
 import type { GoogleGenAI } from "@google/genai";
-import { generateWithFallback } from "../lib/summarizer";
+import { generateWithFallback, parseSummaryJson, buildSummaryObject } from "../lib/summarizer";
 import { classifyProviderError, ProviderAvailabilityError, ProviderFailureError, providerErrorResponse } from "../lib/provider-errors";
 
 const quota = { status: 429, message: JSON.stringify({ error: { code: 429, message: "Quota exceeded: requests per day", status: "RESOURCE_EXHAUSTED" } }) };
@@ -92,4 +92,40 @@ test("an initial nonretryable video failure remains replaceable", async () => {
   const s = stub([{ status: 400, message: "invalid video" }]);
   try { await generateWithFallback(s.ai, params, async () => {}); throw new Error("expected failure"); }
   catch (error) { expect(error).not.toBeInstanceOf(ProviderFailureError); expect((error as Error).message).toBe("Gemini could not process this request."); }
+});
+
+test("parseSummaryJson rejects invalid output with replaceable, sanitized errors", () => {
+  for (const text of ['{"truncated": ', "not json at all", "null", "[]", '"string"', "42"]) {
+    expect(() => parseSummaryJson(text)).toThrow(Error);
+    try {
+      parseSummaryJson(text);
+    } catch (error) {
+      expect(error).not.toBeInstanceOf(ProviderFailureError);
+      expect(error).not.toBeInstanceOf(SyntaxError);
+      expect((error as Error).message).toMatch(/^Gemini returned /);
+    }
+  }
+
+  const valid = parseSummaryJson('{"coreThesis": "test thesis"}');
+  expect(valid.coreThesis).toBe("test thesis");
+});
+
+test("buildSummaryObject rejects empty/degenerate summaries", () => {
+  const dummyCandidate: any = {
+    videoId: "vid1",
+    title: "Title",
+    channelName: "Chan",
+    channelId: "c1",
+    url: "https://youtube.com/watch?v=vid1",
+    durationSec: 600,
+    durationText: "10:00",
+    signalScore: 80,
+  };
+
+  expect(() => buildSummaryObject(dummyCandidate, {})).toThrow("Gemini returned empty summary structure");
+
+  // Valid thesis or chapter breakdown passes
+  const valid = buildSummaryObject(dummyCandidate, { coreThesis: "Something" });
+  expect(valid.coreThesis).toBe("Something");
+  expect(valid.videoId).toBe("vid1");
 });

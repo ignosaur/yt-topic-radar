@@ -116,6 +116,40 @@ export function getInnertube(): Promise<Innertube> {
   return ytPromise;
 }
 
+/**
+ * Default search step deadline (ms). Overridden by RADAR_SCAN_TIMEOUT_MS env var.
+ * Kept well under SCAN_STALE_MS so a hung search frees the lock fast.
+ */
+const SEARCH_TIMEOUT_MS = 60_000;
+
+function searchTimeoutMs(): number {
+  const fromEnv = Number(typeof process !== "undefined" ? process.env.RADAR_SCAN_TIMEOUT_MS : undefined);
+  return Number.isFinite(fromEnv) && fromEnv > 0 ? fromEnv : SEARCH_TIMEOUT_MS;
+}
+
+/**
+ * Race a youtubei.js search call against a deadline. Throws with a clear
+ * message on timeout so the caller's catch block can return 502.
+ */
+export async function searchWithTimeout(
+  yt: { search: (topic: string, opts: any) => Promise<any> },
+  topic: string,
+  opts: { type: "video"; sort_by: "relevance" },
+  overrideTimeoutMs?: number
+): Promise<any> {
+  const deadlineMs = overrideTimeoutMs ?? searchTimeoutMs();
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error("YouTube search timed out")), deadlineMs);
+    (timer as unknown as { unref?: () => void })?.unref?.();
+  });
+  try {
+    return await Promise.race([yt.search(topic, opts), timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export function formatTimestamp(sec: number): string {
   const s = Math.max(0, Math.floor(sec));
   const hrs = Math.floor(s / 3600);
@@ -192,7 +226,7 @@ export async function searchAndFilterTopicWithStats(
   totalEvaluated: number;
 }> {
   const yt = await getInnertube();
-  const search = await yt.search(topic, {
+  const search = await searchWithTimeout(yt, topic, {
     type: "video",
     sort_by: "relevance",
   });
@@ -435,6 +469,20 @@ export async function fetchTimestampedTranscript(
 }
 
 /**
+ * Decode the five standard XML entities and strip CDATA wrappers.
+ * &amp; must be last to avoid double-decoding (e.g. &amp;amp; → &amp; → &).
+ */
+export function decodeXmlEntities(text: string): string {
+  return text
+    .replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g, "$1")
+    .replace(/&#39;/g, "'")
+    .replace(/&quot;/g, '"')
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/**
  * Poll a YouTube channel's native RSS feed (zero API quota).
  */
 export async function fetchChannelRssVideos(
@@ -448,9 +496,9 @@ export async function fetchChannelRssVideos(
   const entries = [...xml.matchAll(/<entry>([\s\S]*?)<\/entry>/g)];
   return entries.map((e) => {
     const body = e[1] || "";
-    const videoId = body.match(/<yt:videoId>([^<]+)<\/yt:videoId>/)?.[1] || "";
-    const title = body.match(/<title>([^<]+)<\/title>/)?.[1] || "";
-    const published = body.match(/<published>([^<]+)<\/published>/)?.[1] || "";
+    const videoId = decodeXmlEntities(body.match(/<yt:videoId>([^<]+)<\/yt:videoId>/)?.[1] || "");
+    const title = decodeXmlEntities(body.match(/<title>([^<]+)<\/title>/)?.[1] || "");
+    const published = decodeXmlEntities(body.match(/<published>([^<]+)<\/published>/)?.[1] || "");
     return {
       videoId,
       title,

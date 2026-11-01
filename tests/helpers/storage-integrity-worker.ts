@@ -243,6 +243,33 @@ if (scenario === "perm") {
     }
   }
   console.log("STANDALONE_ROUTES_OK");
+} else if (scenario === "metrics-concurrency") {
+  // Item 1: 20 parallel updateMetrics increments from 0 must land exactly 20.
+  const { updateMetrics, getMetrics } = store;
+  await Promise.all(Array.from({ length: 20 }, () => updateMetrics({ scansCompleted: 1 })));
+  const final = await getMetrics();
+  if (final.scansCompleted !== 20) fail(`metrics race: expected 20, got ${final.scansCompleted}`);
+  console.log("METRICS_CONCURRENT_OK");
+} else if (scenario === "restore-metrics") {
+  // Item 7: restore derivation must not invent slop stats (slopVideosFiltered: 0).
+  const { getMetrics, saveTopicDigest } = store;
+  await saveTopicDigest({
+    topic: "Restored Topic",
+    generatedAt: new Date().toISOString(),
+    crossVideoSynthesis: "synth",
+    suggestedSubtopics: [],
+    videos: [{
+      videoId: "v1", title: "T", channelName: "C", channelId: "c1", url: "https://u",
+      durationSec: 600, durationText: "10:00", signalScore: 80, videoType: "news_analysis",
+      coreThesis: "thesis", chapterBreakdown: [], typeSpecificDetails: [],
+      worthWatchingFull: "Yes", worthWatchingReason: "reason", summarizedAt: new Date().toISOString(),
+    }],
+  });
+  const metrics = await getMetrics();
+  if (metrics.slopVideosFiltered !== 0) fail(`expected slopVideosFiltered 0, got ${metrics.slopVideosFiltered}`);
+  if (metrics.videosSummarized !== 1) fail(`expected videosSummarized 1, got ${metrics.videosSummarized}`);
+  if (metrics.scansCompleted !== 1) fail(`expected scansCompleted 1, got ${metrics.scansCompleted}`);
+  console.log("RESTORE_METRICS_OK");
 } else {
   console.error(`unknown scenario: ${scenario}`);
   process.exit(1);

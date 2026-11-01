@@ -200,3 +200,25 @@ test("item 5: server and standalone /api/sync reject topics [42] with 400", asyn
     }
   }
 });
+
+test("item 1: 20 concurrent updateMetrics increments land at exactly 20", async () => {
+  const dir = freshDir();
+  try {
+    const { out, err, code } = await runWorker("metrics-concurrency", dir);
+    expect(`${out}\n${err}`).toContain("METRICS_CONCURRENT_OK");
+    expect(code, `${out}\n${err}`).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("item 7: fresh restore derives 0 for slopVideosFiltered and accurate counts", async () => {
+  const dir = freshDir();
+  try {
+    const { out, err, code } = await runWorker("restore-metrics", dir);
+    expect(`${out}\n${err}`).toContain("RESTORE_METRICS_OK");
+    expect(code, `${out}\n${err}`).toBe(0);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
