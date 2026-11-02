@@ -210,6 +210,9 @@ if (scenario === "perm") {
     set: async (key: string, value: unknown) => {
       idb.set(key, structuredClone(value));
     },
+    del: async (key: string) => {
+      idb.delete(key);
+    },
   }));
   mock.module("../../ui/digest.js", () => ({}));
   await import("../../ui/standalone-entry");
