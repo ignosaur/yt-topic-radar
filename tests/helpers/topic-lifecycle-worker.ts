@@ -51,7 +51,7 @@ if (mode === "standalone") {
       return next;
     } },
   } });
-  mock.module("idb-keyval", () => ({ get: async (key: string) => structuredClone(idb.get(key)), set: async (key: string, value: unknown) => { idb.set(key, structuredClone(value)); } }));
+  mock.module("idb-keyval", () => ({ get: async (key: string) => structuredClone(idb.get(key)), set: async (key: string, value: unknown) => { idb.set(key, structuredClone(value)); }, del: async (key: string) => { idb.delete(key); } }));
   mock.module("../../ui/digest.js", () => ({}));
 }
 let releaseScan: () => void = () => {};
