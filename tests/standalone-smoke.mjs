@@ -197,6 +197,29 @@ async function main() {
           stored === DUMMY_KEY,
           `expected ${JSON.stringify(DUMMY_KEY)} in chrome.storage.local, got ${JSON.stringify(stored)}`
         );
+
+        // Forget removes the key from storage and flips the badge.
+        if (!(await settingsPanel.isVisible())) {
+          await page.click("#btnSettingsToggle");
+        }
+        page.once("dialog", (dialog) => dialog.accept());
+        await page.click("#btnForgetKey");
+        await page.waitForFunction(
+          () =>
+            new Promise((resolve) =>
+              chrome.storage.local.get("geminiApiKey", (value) =>
+                resolve(value.geminiApiKey === undefined)
+              )
+            ),
+          undefined,
+          { timeout: 10000 }
+        );
+        const badge = await page.textContent("#keyStatusBadge");
+        assert(
+          (badge || "").includes("No API Key"),
+          `expected badge 'No API Key' after forget, got ${JSON.stringify(badge)}`
+        );
+        return "key persisted across reload, then forget cleared chrome.storage.local";
       }
     );
 

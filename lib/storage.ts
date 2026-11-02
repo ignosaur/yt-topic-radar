@@ -1,4 +1,4 @@
-import { get as idbGet, set as idbSet } from "idb-keyval";
+import { get as idbGet, set as idbSet, del as idbDel } from "idb-keyval";
 import type { TopicDigest } from "./summarizer";
 import { parseDurationSec } from "./youtube";
 
@@ -355,6 +355,29 @@ export async function saveApiKey(apiKey: string): Promise<void> {
   const store = await readCliStore();
   store.apiKey = apiKey.trim();
   await writeCliStore(store);
+}
+
+export async function clearApiKey(): Promise<void> {
+  if (isBrowserExtension) {
+    const ch = (globalThis as any).chrome;
+    await ch.storage.local.remove("geminiApiKey");
+    return;
+  }
+  if (isIndexedDBAvailable) {
+    await idbDel("geminiApiKey");
+    return;
+  }
+  // shortcut: a GEMINI_API_KEY env fallback (operator-configured) still wins in getApiKey.
+  const store = await readCliStore();
+  store.apiKey = "";
+  await writeCliStore(store);
+}
+
+/** Mask for UI display; short keys would be fully revealed by prefix/suffix slicing. */
+export function maskApiKey(apiKey: string): string {
+  if (!apiKey) return "";
+  if (apiKey.length <= 10) return "••••";
+  return `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
 }
 
 export async function getEntitlements(): Promise<Entitlements> {

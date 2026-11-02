@@ -18,6 +18,8 @@ import {
   StaleSyncError,
   getApiKey,
   saveApiKey,
+  clearApiKey,
+  maskApiKey,
   getDigests,
   saveTopicDigest,
   getTopicGeneration,
@@ -71,6 +73,7 @@ const JSON_POST_ROUTES = new Set([
   "/api/entitlements",
   "/api/metrics",
   "/api/key",
+  "/api/key/clear",
   "/api/scan",
 ]);
 
@@ -376,7 +379,7 @@ const server = Bun.serve({
         monetization: { ...MONETIZATION_CONFIG, proEnabled: true },
         starterTopics: STARTER_TOPICS,
         hasApiKey: Boolean(apiKey),
-        maskedKey: apiKey ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}` : "",
+        maskedKey: maskApiKey(apiKey),
       });
     }
 
@@ -456,10 +459,18 @@ const server = Bun.serve({
       const parsed = await readJsonObject(req);
       if (!parsed.ok) return json({ error: "invalid_json" }, 400);
       const body = parsed.body as { apiKey?: string };
-      if (!body.apiKey) {
+      if (typeof body.apiKey !== "string" || !body.apiKey.trim() || body.apiKey.trim().length > 512) {
         return json({ error: "API key required" }, 400);
       }
       await saveApiKey(body.apiKey);
+      return json({ ok: true });
+    }
+
+    // API: Forget Gemini API Key
+    if (url.pathname === "/api/key/clear" && req.method === "POST") {
+      const parsed = await readJsonObject(req);
+      if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+      await clearApiKey();
       return json({ ok: true });
     }
 

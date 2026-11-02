@@ -436,6 +436,7 @@ function renderSidebar() {
   // Key status
   const badge = el("keyStatusBadge");
   badge.textContent = state.hasApiKey ? `Key: ${state.maskedKey}` : "No API Key";
+  el("btnForgetKey")?.classList.toggle("hidden", !state.hasApiKey);
   badge.className = state.hasApiKey
     ? "px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300"
     : "px-2 py-0.5 rounded bg-amber-500/20 text-amber-300";
@@ -1102,12 +1103,14 @@ el("btnSaveKey").addEventListener("click", async () => {
   }
   const key = el("apiKeyInput").value.trim();
   if (!key) return;
+  if (state.hasApiKey && !confirm("Replace the saved Gemini API key?")) return;
   try {
-    await fetch("/api/key", {
+    const res = await fetch("/api/key", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ apiKey: key }),
     });
+    if (!res.ok) throw new Error("Save failed");
     setOfflineMode(false);
   } catch (err) {
     if (isServerUnreachable(err)) {
@@ -1120,6 +1123,33 @@ el("btnSaveKey").addEventListener("click", async () => {
   }
   el("apiKeyInput").value = "";
   showToast("Saved Gemini API key");
+  await loadState();
+});
+
+el("btnForgetKey").addEventListener("click", async () => {
+  if (isServerOffline) {
+    serverUnreachableToast("forget key");
+    return;
+  }
+  if (!confirm("Forget the saved Gemini API key? You will need to paste it again to scan.")) return;
+  try {
+    const res = await fetch("/api/key/clear", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    if (!res.ok) throw new Error("Forget failed");
+    setOfflineMode(false);
+  } catch (err) {
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("forget key");
+      return;
+    }
+    showToast(err?.message || "Forget failed", true);
+    return;
+  }
+  showToast("Forgot Gemini API key");
   await loadState();
 });
 

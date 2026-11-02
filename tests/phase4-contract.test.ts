@@ -52,6 +52,7 @@ beforeAll(async () => {
       ...process.env,
       PORT: String(PORT),
       RADAR_STORE_PATH: join(tmpDir, "store.json"),
+      GEMINI_API_KEY: "",
     },
     stdio: "ignore",
   });
@@ -299,4 +300,24 @@ test("malformed JSON -> 400 invalid_json, no state change", async () => {
   // still answers 400 (required), never 409 (in progress).
   const probe = await post("/api/scan", { topic: "", maxVideos: 1 });
   expect(probe.status).toBe(400);
+});
+
+test("api key: validation, short-key masking, clear", async () => {
+  const badType = await post("/api/key", { apiKey: 123 });
+  expect(badType.status).toBe(400);
+  const tooLong = await post("/api/key", { apiKey: "x".repeat(513) });
+  expect(tooLong.status).toBe(400);
+
+  const short = await post("/api/key", { apiKey: "short123" });
+  expect(short.status).toBe(200);
+  let state = await getState();
+  expect(state.hasApiKey).toBe(true);
+  expect(state.maskedKey).toBe("••••");
+  expect(state.maskedKey).not.toContain("short123");
+
+  const cleared = await post("/api/key/clear", {});
+  expect(cleared.status).toBe(200);
+  state = await getState();
+  expect(state.hasApiKey).toBe(false);
+  expect(state.maskedKey).toBe("");
 });

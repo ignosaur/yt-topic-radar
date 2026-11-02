@@ -530,7 +530,7 @@ function renderMetricsUI() {
 function renderSidebar() {
   renderMetricsUI();
   let badge = el("keyStatusBadge");
-  badge.textContent = state.hasApiKey ? `Key: ${state.maskedKey}` : "No API Key", badge.className = state.hasApiKey ? "px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300" : "px-2 py-0.5 rounded bg-amber-500/20 text-amber-300", el("topicFilterTabs").querySelectorAll("[data-tab]").forEach((btn) => {
+  badge.textContent = state.hasApiKey ? `Key: ${state.maskedKey}` : "No API Key", el("btnForgetKey")?.classList.toggle("hidden", !state.hasApiKey), badge.className = state.hasApiKey ? "px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300" : "px-2 py-0.5 rounded bg-amber-500/20 text-amber-300", el("topicFilterTabs").querySelectorAll("[data-tab]").forEach((btn) => {
     let tab = btn.getAttribute("data-tab");
     btn.className = tab === topicFilterTab ? "flex-1 py-1 rounded bg-slate-800 text-white font-medium border border-slate-700" : "flex-1 py-1 rounded bg-slate-900/60 text-slate-400 hover:text-slate-200";
   });
@@ -992,12 +992,16 @@ var init_digest = __esm(() => {
     let key = el("apiKeyInput").value.trim();
     if (!key)
       return;
+    if (state.hasApiKey && !confirm("Replace the saved Gemini API key?"))
+      return;
     try {
-      await fetch("/api/key", {
+      if (!(await fetch("/api/key", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ apiKey: key })
-      }), setOfflineMode(!1);
+      })).ok)
+        throw Error("Save failed");
+      setOfflineMode(!1);
     } catch (err) {
       if (isServerUnreachable(err)) {
         setOfflineMode(!0), serverUnreachableToast("save key");
@@ -1007,6 +1011,31 @@ var init_digest = __esm(() => {
       return;
     }
     el("apiKeyInput").value = "", showToast("Saved Gemini API key"), await loadState();
+  });
+  el("btnForgetKey").addEventListener("click", async () => {
+    if (isServerOffline) {
+      serverUnreachableToast("forget key");
+      return;
+    }
+    if (!confirm("Forget the saved Gemini API key? You will need to paste it again to scan."))
+      return;
+    try {
+      if (!(await fetch("/api/key/clear", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      })).ok)
+        throw Error("Forget failed");
+      setOfflineMode(!1);
+    } catch (err) {
+      if (isServerUnreachable(err)) {
+        setOfflineMode(!0), serverUnreachableToast("forget key");
+        return;
+      }
+      showToast(err?.message || "Forget failed", !0);
+      return;
+    }
+    showToast("Forgot Gemini API key"), await loadState();
   });
   el("addTopicForm").addEventListener("submit", (e) => {
     if (e.preventDefault(), isServerOffline) {
@@ -50206,6 +50235,9 @@ function get(key, customStore = defaultGetStore()) {
 function set(key, value, customStore = defaultGetStore()) {
   return customStore("readwrite", (store) => (store.put(value, key), promisifyRequest(store.transaction)));
 }
+function del(key, customStore = defaultGetStore()) {
+  return customStore("readwrite", (store) => (store.delete(key), promisifyRequest(store.transaction)));
+}
 
 // lib/storage.ts
 var MONETIZATION_CONFIG = {
@@ -50441,6 +50473,25 @@ async function saveApiKey(apiKey) {
   }
   let store = await readCliStore();
   store.apiKey = apiKey.trim(), await writeCliStore(store);
+}
+async function clearApiKey() {
+  if (isBrowserExtension) {
+    await globalThis.chrome.storage.local.remove("geminiApiKey");
+    return;
+  }
+  if (isIndexedDBAvailable) {
+    await del("geminiApiKey");
+    return;
+  }
+  let store = await readCliStore();
+  store.apiKey = "", await writeCliStore(store);
+}
+function maskApiKey(apiKey) {
+  if (!apiKey)
+    return "";
+  if (apiKey.length <= 10)
+    return "••••";
+  return `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
 }
 async function getEntitlements() {
   let store = await readCliStore();
@@ -50937,7 +50988,7 @@ async function buildState() {
     monetization: { ...MONETIZATION_CONFIG, proEnabled: PRO_ENABLED },
     starterTopics: STARTER_TOPICS,
     hasApiKey: Boolean(apiKey),
-    maskedKey: apiKey ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}` : ""
+    maskedKey: maskApiKey(apiKey)
   };
 }
 async function handleApi(input, init) {
@@ -50976,9 +51027,14 @@ async function handleApi(input, init) {
     if (!parsed.ok)
       return json2({ error: "invalid_json" }, 400);
     let body = parsed.body;
-    if (!body.apiKey)
+    if (typeof body.apiKey !== "string" || !body.apiKey.trim() || body.apiKey.trim().length > 512)
       return json2({ error: "API key required" }, 400);
     return await saveApiKey(body.apiKey), json2({ ok: !0 });
+  }
+  if (path === "/api/key/clear" && method === "POST") {
+    if (!(await readJsonObject(init)).ok)
+      return json2({ error: "invalid_json" }, 400);
+    return await clearApiKey(), json2({ ok: !0 });
   }
   if (path === "/api/metrics" && method === "POST") {
     let parsed = await readJsonObject(init);

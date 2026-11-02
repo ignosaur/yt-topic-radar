@@ -5,6 +5,8 @@ import {
   MONETIZATION_CONFIG,
   STARTER_TOPICS,
   exportBackupJson,
+  clearApiKey,
+  maskApiKey,
   getApiKey,
   getDigests,
   getMetrics,
@@ -67,7 +69,7 @@ async function buildState() {
     monetization: { ...MONETIZATION_CONFIG, proEnabled: PRO_ENABLED },
     starterTopics: STARTER_TOPICS,
     hasApiKey: Boolean(apiKey),
-    maskedKey: apiKey ? `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}` : "",
+    maskedKey: maskApiKey(apiKey),
   };
 }
 
@@ -122,8 +124,15 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
     const parsed = await readJsonObject(init);
     if (!parsed.ok) return json({ error: "invalid_json" }, 400);
     const body = parsed.body as { apiKey?: string };
-    if (!body.apiKey) return json({ error: "API key required" }, 400);
+    if (typeof body.apiKey !== "string" || !body.apiKey.trim() || body.apiKey.trim().length > 512) return json({ error: "API key required" }, 400);
     await saveApiKey(body.apiKey);
+    return json({ ok: true });
+  }
+
+  if (path === "/api/key/clear" && method === "POST") {
+    const parsed = await readJsonObject(init);
+    if (!parsed.ok) return json({ error: "invalid_json" }, 400);
+    await clearApiKey();
     return json({ ok: true });
   }
 
