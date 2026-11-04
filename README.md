@@ -51,6 +51,7 @@ bun run package:chrome   # build + dist/yt-topic-radar-v<version>.zip + verify
 ## Firefox extension
 
 ```bash
+bun run build:ext:firefox  # standalone prod bundle for Firefox (no server needed)
 bun run package:firefox  # build + dist/yt-topic-radar-firefox-v<version>.zip + verify
 ```
 
