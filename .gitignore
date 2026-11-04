@@ -8,6 +8,7 @@ node_modules/
 
 # Local runtime cache
 .local-radar-store.json
+.local-radar-store.json.lock
 
 # Build outputs & local indexes
 dist/

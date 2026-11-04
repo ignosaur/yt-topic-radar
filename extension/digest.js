@@ -292,9 +292,135 @@ function ttsSupportStatus(hasApi, voicesCount) {
 }
 
 // ui/telemetry-utils.js
-var COUNT_BUCKETS, DURATION_BUCKETS, SCAN_ERROR_CLASSES, IMPORT_ERROR_CLASSES, BROWSERS, BUCKET_SET, DURATION_SET, SCAN_ERROR_SET, IMPORT_ERROR_SET, BROWSER_SET;
+function countBucket(n) {
+  let v = Number(n);
+  if (!Number.isFinite(v) || v <= 0)
+    return "0";
+  if (v <= 1)
+    return "1";
+  if (v <= 5)
+    return "2-5";
+  return "6+";
+}
+function durationBucket(ms) {
+  let v = Number(ms);
+  if (!Number.isFinite(v) || v < 0)
+    return "unknown";
+  if (v < 5000)
+    return "0-5s";
+  if (v < 15000)
+    return "5-15s";
+  if (v < 30000)
+    return "15-30s";
+  if (v < 60000)
+    return "30-60s";
+  return "60s+";
+}
+function scanErrorClass(code) {
+  switch (String(code ?? "")) {
+    case "quota_exhausted":
+    case "rate_limited":
+      return "quota_or_rate_limit";
+    case "invalid_api_key":
+    case "gemini_api_not_enabled":
+      return "api_key_problem";
+    case "provider_unavailable":
+      return "provider_unavailable";
+    case "scan_timeout":
+      return "timeout";
+    case "scan_in_progress":
+      return "scan_in_progress";
+    case "topic_changed":
+      return "topic_changed";
+    default:
+      return "unknown";
+  }
+}
+function importErrorClass(messageOrCode) {
+  let s = String(messageOrCode ?? "").toLowerCase();
+  if (!s)
+    return "unknown";
+  if (s.includes("backup_too_large") || s.includes("exceeds") || s.includes("too large"))
+    return "backup_too_large";
+  return "invalid_backup";
+}
+function browserBucket(ua, hasBrave, uaBrands) {
+  let name = getBrowserName(ua, hasBrave, uaBrands);
+  if (name === "Chrome" || name === "Edge" || name === "Brave")
+    return "chrome";
+  if (name === "Firefox")
+    return "firefox";
+  return "other";
+}
+function pickBucket(v) {
+  let s = String(v ?? "");
+  return BUCKET_SET.has(s) ? s : void 0;
+}
+function pickDuration(v) {
+  let s = String(v ?? "");
+  return DURATION_SET.has(s) ? s : void 0;
+}
+function pickError(event, v) {
+  let allowed = EVENT_ERROR_SET[String(event)] ?? EMPTY_SET, s = String(v ?? "");
+  return allowed.has(s) ? s : void 0;
+}
+function pickBrowser(v) {
+  let s = String(v ?? "");
+  return BROWSER_SET.has(s) ? s : void 0;
+}
+function pickInt(v) {
+  let n = Number(v);
+  return Number.isFinite(n) && n >= 0 ? Math.floor(n) : void 0;
+}
+function coerceProp(key, value, event) {
+  switch (key) {
+    case "has_api_key":
+      return typeof value === "boolean" ? value : void 0;
+    case "topics_count_bucket":
+    case "digests_count_bucket":
+      return pickBucket(value);
+    case "duration_bucket":
+      return pickDuration(value);
+    case "error_class":
+      return pickError(event, value);
+    case "browser":
+      return pickBrowser(value);
+    case "max_videos":
+    case "videos_summarized":
+    case "requested_count":
+    case "skipped_count":
+    case "slop_filtered":
+    case "seconds_saved_delta":
+      return pickInt(value);
+    default:
+      return;
+  }
+}
+function buildCapturePayload({ apiKey, event, distinctId, version, props }) {
+  let allowed = EVENT_PROPS[String(event)] ?? ["browser"], properties = {
+    $process_person_profile: !1,
+    $geoip_disable: !0,
+    ext_version: String(version ?? ""),
+    build: BUILD,
+    schema_version: SCHEMA_VERSION
+  }, src = props && typeof props === "object" ? props : {};
+  for (let key of allowed) {
+    let coerced = coerceProp(key, src[key], String(event ?? ""));
+    if (coerced !== void 0)
+      properties[key] = coerced;
+  }
+  return {
+    api_key: String(apiKey ?? ""),
+    event: String(event ?? ""),
+    distinct_id: String(distinctId ?? ""),
+    properties
+  };
+}
+var SCHEMA_VERSION = 1, BUILD = "standalone", COUNT_BUCKETS, DURATION_BUCKETS, SCAN_ERROR_CLASSES, IMPORT_ERROR_CLASSES, BROWSERS, EVENT_PROPS, BUCKET_SET, DURATION_SET, SCAN_ERROR_SET, IMPORT_ERROR_SET, BROWSER_SET, EMPTY_SET, EVENT_ERROR_SET;
 var init_telemetry_utils = __esm(() => {
-  COUNT_BUCKETS = ["0", "1", "2-5", "6+"], DURATION_BUCKETS = ["0-5s", "5-15s", "15-30s", "30-60s", "60s+", "unknown"], SCAN_ERROR_CLASSES = [
+  COUNT_BUCKETS = ["0", "1", "2-5", "6+"];
+  DURATION_BUCKETS = ["0-5s", "5-15s", "15-30s", "30-60s", "60s+", "unknown"];
+  SCAN_ERROR_CLASSES = [
     "quota_or_rate_limit",
     "api_key_problem",
     "provider_unavailable",
@@ -302,7 +428,35 @@ var init_telemetry_utils = __esm(() => {
     "scan_in_progress",
     "topic_changed",
     "unknown"
-  ], IMPORT_ERROR_CLASSES = ["invalid_backup", "backup_too_large", "unknown"], BROWSERS = ["chrome", "firefox", "other"], BUCKET_SET = new Set(COUNT_BUCKETS), DURATION_SET = new Set(DURATION_BUCKETS), SCAN_ERROR_SET = new Set(SCAN_ERROR_CLASSES), IMPORT_ERROR_SET = new Set(IMPORT_ERROR_CLASSES), BROWSER_SET = new Set(BROWSERS);
+  ];
+  IMPORT_ERROR_CLASSES = ["invalid_backup", "backup_too_large", "unknown"];
+  BROWSERS = ["chrome", "firefox", "other"];
+  EVENT_PROPS = {
+    dashboard_opened: ["has_api_key", "topics_count_bucket", "digests_count_bucket", "browser"],
+    api_key_saved: ["browser"],
+    scan_started: ["max_videos", "browser"],
+    scan_completed: [
+      "duration_bucket",
+      "videos_summarized",
+      "requested_count",
+      "skipped_count",
+      "slop_filtered",
+      "seconds_saved_delta",
+      "browser"
+    ],
+    scan_failed: ["duration_bucket", "error_class", "browser"],
+    timestamp_clicked: ["browser"],
+    tts_played: ["browser"],
+    backup_exported: ["browser"],
+    backup_export_failed: ["error_class", "browser"],
+    backup_imported: ["topics_count_bucket", "digests_count_bucket", "browser"],
+    backup_import_failed: ["error_class", "browser"]
+  }, BUCKET_SET = new Set(COUNT_BUCKETS), DURATION_SET = new Set(DURATION_BUCKETS), SCAN_ERROR_SET = new Set(SCAN_ERROR_CLASSES), IMPORT_ERROR_SET = new Set(IMPORT_ERROR_CLASSES), BROWSER_SET = new Set(BROWSERS);
+  EMPTY_SET = /* @__PURE__ */ new Set, EVENT_ERROR_SET = {
+    scan_failed: SCAN_ERROR_SET,
+    backup_export_failed: IMPORT_ERROR_SET,
+    backup_import_failed: IMPORT_ERROR_SET
+  };
 });
 
 // ui/digest.js
@@ -443,27 +597,81 @@ function syncYouTubeWatchTab(videoId, startSec) {
 }
 async function recordMetricEvent(event) {
   try {
-    let data = await (await fetch("/api/metrics", {
+    let res = await fetch("/api/metrics", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ event })
-    })).json();
+    }), data = await res.json();
+    if (res.ok) {
+      let usageEvent = { timestampClick: "timestamp_clicked", ttsPlay: "tts_played" }[event];
+      if (usageEvent)
+        captureUsage(usageEvent);
+    }
     if (data?.metrics)
       state.metrics = data.metrics, renderMetricsUI();
   } catch {}
 }
-function ensureTelemetryNotice() {
+async function ensureTelemetryNotice() {
+  if (!STANDALONE_ROUTE)
+    return;
+  try {
+    if ((await chrome.storage.local.get([TELEMETRY_NOTICE_FLAG]))?.[TELEMETRY_NOTICE_FLAG])
+      return;
+    el("telemetryNotice")?.classList.remove("hidden"), await chrome.storage.local.set({ [TELEMETRY_NOTICE_FLAG]: !0 });
+  } catch {
+    el("telemetryNotice")?.classList.remove("hidden");
+  }
+}
+function captureDashboardOpened() {
+  if (!STANDALONE_ROUTE || !state.sync?.telemetryOptIn || dashboardOpenCaptured)
+    return;
+  dashboardOpenCaptured = !0, captureUsage("dashboard_opened", {
+    has_api_key: Boolean(state.hasApiKey),
+    topics_count_bucket: countBucket(state.sync.topics.length),
+    digests_count_bucket: countBucket(Object.keys(state.digests || {}).length)
+  });
+}
+async function captureUsage(event, props = {}) {
   try {
     if (!STANDALONE_ROUTE)
       return;
-    if (typeof chrome > "u" || !chrome.storage?.local) {
-      el("telemetryNotice")?.classList.remove("hidden");
+    if (!state.sync?.telemetryOptIn)
       return;
+    if (!POSTHOG_KEY)
+      return;
+    if (await ensureTelemetryNotice(), typeof chrome > "u" || !chrome.storage?.local || typeof crypto?.randomUUID !== "function")
+      return;
+    telemetryIdentity ||= chrome.storage.local.get(["radarAnonId"]).then(async (stored) => {
+      let id = stored?.radarAnonId || crypto.randomUUID();
+      if (!stored?.radarAnonId)
+        await chrome.storage.local.set({ radarAnonId: id });
+      return id;
+    });
+    let anonId = await telemetryIdentity.catch(() => (telemetryIdentity = void 0, null));
+    if (!anonId || !state.sync?.telemetryOptIn)
+      return;
+    let version = "";
+    try {
+      version = chrome.runtime?.getManifest?.()?.version || "";
+    } catch {}
+    let browser;
+    try {
+      browser = browserBucket(navigator.userAgent, Boolean(navigator.brave), navigator.userAgentData?.brands);
+    } catch {
+      browser = void 0;
     }
-    chrome.storage.local.get([TELEMETRY_NOTICE_FLAG]).then((stored) => {
-      if (stored?.[TELEMETRY_NOTICE_FLAG])
-        return;
-      el("telemetryNotice")?.classList.remove("hidden"), chrome.storage.local.set({ [TELEMETRY_NOTICE_FLAG]: !0 }).catch(() => {});
+    let payload = buildCapturePayload({
+      apiKey: POSTHOG_KEY,
+      event,
+      distinctId: anonId,
+      version,
+      props: { ...props || {}, browser }
+    }), host = String(POSTHOG_HOST || "https://eu.i.posthog.com").replace(/\/+$/, "");
+    (origFetch || fetch)(`${host}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: !0
     }).catch(() => {});
   } catch {}
 }
@@ -478,7 +686,7 @@ async function loadState() {
         activeTopic = paramTopic;
       if (paramTopic)
         history.replaceState(null, "", location.pathname);
-      initialLoadDone = !0, resetRssUnread();
+      initialLoadDone = !0, resetRssUnread(), captureDashboardOpened();
     }
     if (!state.sync.topics.includes(activeTopic))
       activeTopic = state.sync.topics[0] || "";
@@ -705,7 +913,7 @@ function renderMainDigest() {
     else if (summarized < requested && digest.stopReason === "attempt_limit")
       text += " · replacement limit reached";
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
-  })(), videosHtml = digest.videos.map((v, idx) => {
+  })(), transcriptPro = isPro(), videosHtml = digest.videos.map((v, idx) => {
     let verdictColor = v.worthWatchingFull === "Yes" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : v.worthWatchingFull === "Skim timestamps" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-slate-700/50 text-slate-300 border-slate-600", chaptersHtml = (v.chapterBreakdown || []).map((c) => `
           <div class="border-l-2 border-slate-700 pl-3 py-1 space-y-1">
             <div class="flex items-center gap-2">
@@ -740,6 +948,7 @@ function renderMainDigest() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button data-tts="${idx}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">\uD83D\uDD0A Read Aloud</button>
+              ${transcriptPro ? `<button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>` : ""}
               <button data-pin-id="${esc(v.channelId)}" data-pin-name="${esc(v.channelName)}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">\uD83D\uDCCC Pin Channel</button>
             </div>
           </div>
@@ -819,6 +1028,13 @@ function renderMainDigest() {
       recordMetricEvent("ttsPlay");
       let script = `${v.title} by ${v.channelName}. Core takeaway: ${v.coreThesis}. ${v.chapterBreakdown.map((c) => `At ${c.timestamp}, ${c.sectionTitle}: ${c.keyPoints.join(". ")}`).join(". ")}`;
       speakText(script);
+    });
+  }), container.querySelectorAll("[data-transcript]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      let idx = Number(btn.getAttribute("data-transcript")), v = digest.videos[idx];
+      if (!v)
+        return;
+      await downloadTranscript(v);
     });
   }), container.querySelectorAll("[data-pin-id]").forEach((btn) => {
     btn.addEventListener("click", () => {
@@ -923,7 +1139,39 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
   else
     notes.innerHTML = watchLinkHtml;
 }
-var STANDALONE_ROUTE, API_BASE = "", origFetch, IS_EXTENSION_PAGE, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", TELEMETRY_NOTICE_FLAG = "radarTelemetryNoticeShown", ttsVoices;
+function transcriptToText(video, blocks) {
+  let lines = [
+    video.title,
+    `Channel: ${video.channelName}`,
+    `https://www.youtube.com/watch?v=${video.videoId}`,
+    ""
+  ];
+  for (let b of blocks)
+    lines.push(`[${b.timestamp}] ${b.text}`);
+  return lines.join(`
+`);
+}
+async function downloadTranscript(v) {
+  try {
+    let res = await fetch(`/api/transcript?videoId=${encodeURIComponent(v.videoId)}`), data = await res.json().catch(() => ({}));
+    if (res.status === 403) {
+      showToast("Transcript download is a Pro feature — upgrade to unlock", !0);
+      return;
+    }
+    if (!res.ok || !Array.isArray(data.blocks) || data.blocks.length === 0)
+      throw Error(data.error || "Transcript unavailable for this video");
+    let blob = new Blob([transcriptToText(v, data.blocks)], { type: "text/plain;charset=utf-8" }), url = URL.createObjectURL(blob), a = document.createElement("a");
+    a.href = url;
+    let safe = v.title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || v.videoId;
+    a.download = `${safe}-${v.videoId}.txt`, document.body.appendChild(a), a.click(), a.remove(), URL.revokeObjectURL(url), showToast("Downloaded transcript");
+  } catch (err) {
+    if (isServerUnreachable(err))
+      setOfflineMode(!0), serverUnreachableToast("download transcript");
+    else
+      showToast(err?.message || "Transcript download failed", !0);
+  }
+}
+var STANDALONE_ROUTE, API_BASE = "", origFetch, IS_EXTENSION_PAGE, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", POSTHOG_KEY = "phc_DbNdUgDGFVhKFeZnV6U6VVXzUScGKHpWgxzxEeuzAA5q", POSTHOG_HOST = "https://eu.i.posthog.com", TELEMETRY_NOTICE_FLAG = "radarTelemetryNoticeShown", telemetryIdentity, dashboardOpenCaptured = !1, ttsVoices;
 var init_digest = __esm(() => {
   init_telemetry_utils();
   STANDALONE_ROUTE = typeof globalThis.__RADAR_STANDALONE__ === "function" ? globalThis.__RADAR_STANDALONE__ : null, origFetch = window.fetch, IS_EXTENSION_PAGE = typeof chrome < "u" && Boolean(chrome.runtime?.getURL);
@@ -991,8 +1239,8 @@ var init_digest = __esm(() => {
       el("telemetryNotice")?.classList.add("hidden"), chrome.storage?.local?.set({ [TELEMETRY_NOTICE_FLAG]: !0 }).catch(() => {});
     } catch {}
   });
-  el("telemetryToggle").addEventListener("change", (e) => {
-    saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) }), showToast(e.target.checked ? "Anonymous usage stats enabled" : "Anonymous usage stats disabled");
+  el("telemetryToggle").addEventListener("change", async (e) => {
+    await saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) }), captureDashboardOpened(), showToast(state.sync.telemetryOptIn ? "Anonymous usage stats enabled" : "Anonymous usage stats disabled");
   });
   el("proToggle")?.addEventListener("change", async (e) => {
     let nextIsPro = Boolean(e.target.checked);
@@ -1045,7 +1293,7 @@ var init_digest = __esm(() => {
       showToast(err?.message || "Save failed", !0);
       return;
     }
-    el("apiKeyInput").value = "", showToast("Saved Gemini API key"), await loadState();
+    el("apiKeyInput").value = "", captureUsage("api_key_saved"), showToast("Saved Gemini API key"), await loadState();
   });
   el("btnForgetKey").addEventListener("click", async () => {
     if (isServerOffline) {
@@ -1094,16 +1342,18 @@ var init_digest = __esm(() => {
     }
     if (!activeTopic || scanningTopic)
       return;
-    let topic = activeTopic;
+    let topic = activeTopic, scanStartedAt = Date.now(), metricsBefore = { ...state.metrics }, scanOutcome = "unknown";
     scanningTopic = topic, el("btnScanTopic").disabled = !0, el("scanBtnText").textContent = "Scanning...", renderSidebar(), renderMainDigest();
     try {
-      let maxVideos = Number(el("scanCountSelect").value || 3), res = await fetch("/api/scan", {
+      let maxVideos = Number(el("scanCountSelect").value || 3);
+      captureUsage("scan_started", { max_videos: maxVideos });
+      let res = await fetch("/api/scan", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ topic, maxVideos })
       }), data = await res.json();
       if (!res.ok) {
-        if (data.error === "provider_unavailable") {
+        if (scanOutcome = scanErrorClass(data.error), data.error === "provider_unavailable") {
           showToast("Gemini is temporarily unavailable. Please try again later.", !0);
           return;
         }
@@ -1122,7 +1372,14 @@ var init_digest = __esm(() => {
         }
         throw Error(data.error === "topic_changed" ? "Topic changed while scanning. Please scan it again." : data.error || "Scan failed");
       }
-      if (setOfflineMode(!1), await loadState(), data.metrics)
+      if (scanOutcome = null, captureUsage("scan_completed", {
+        duration_bucket: durationBucket(Date.now() - scanStartedAt),
+        videos_summarized: Math.max(0, (data.metrics?.videosSummarized || 0) - (metricsBefore.videosSummarized || 0)),
+        requested_count: Number(data.digest.requestedCount ?? data.digest.videos.length),
+        skipped_count: data.digest.skippedVideos?.length || 0,
+        slop_filtered: Math.max(0, (data.metrics?.slopVideosFiltered || 0) - (metricsBefore.slopVideosFiltered || 0)),
+        seconds_saved_delta: Math.max(0, (data.metrics?.secondsSaved || 0) - (metricsBefore.secondsSaved || 0))
+      }), setOfflineMode(!1), await loadState(), data.metrics)
         state.metrics = data.metrics;
       resetRssUnread();
       let summarized = data.digest.videos.length, requested = Number(data.digest.requestedCount || summarized), skipped = Array.isArray(data.digest.skippedVideos) ? data.digest.skippedVideos.length : 0;
@@ -1139,6 +1396,11 @@ var init_digest = __esm(() => {
       else
         showToast(err.message || "Scan failed", !0);
     } finally {
+      if (scanOutcome !== null)
+        captureUsage("scan_failed", {
+          duration_bucket: durationBucket(Date.now() - scanStartedAt),
+          error_class: scanOutcome
+        });
       scanningTopic = "", el("btnScanTopic").disabled = isServerOffline, el("scanBtnText").textContent = "Scan Topic Now", renderAll();
     }
   });
@@ -1148,25 +1410,29 @@ var init_digest = __esm(() => {
       if (!res.ok)
         throw Error("Export failed");
       let blob = await res.blob(), url = URL.createObjectURL(blob), a = document.createElement("a");
-      a.href = url, a.download = `yt-topic-radar-backup-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`, document.body.appendChild(a), a.click(), a.remove(), URL.revokeObjectURL(url), showToast("Exported backup .json");
+      a.href = url, a.download = `yt-topic-radar-backup-${(/* @__PURE__ */ new Date()).toISOString().slice(0, 10)}.json`, document.body.appendChild(a), a.click(), a.remove(), URL.revokeObjectURL(url), captureUsage("backup_exported"), showToast("Exported backup .json");
     } catch (err) {
-      showToast(err?.message || "Export failed", !0);
+      captureUsage("backup_export_failed", { error_class: "unknown" }), showToast(err?.message || "Export failed", !0);
     }
   });
   el("inputImportBackup").addEventListener("change", async (e) => {
     let file = e.target.files?.[0];
     if (!file)
       return;
+    let importFailure = "unknown";
     try {
       let text = await file.text(), res = await fetch("/api/backup/import", {
         method: "POST",
         body: text
       }), data = await res.json();
       if (!res.ok)
-        throw Error(data.error || "Import failed");
-      setOfflineMode(!1), showToast(`Restored ${data.topicsCount} topics & ${data.digestsCount} digests`), await loadState();
+        throw importFailure = importErrorClass(data.error), Error(data.error || "Import failed");
+      captureUsage("backup_imported", {
+        topics_count_bucket: countBucket(data.topicsCount),
+        digests_count_bucket: countBucket(data.digestsCount)
+      }), setOfflineMode(!1), showToast(`Restored ${data.topicsCount} topics & ${data.digestsCount} digests`), await loadState();
     } catch (err) {
-      if (isServerUnreachable(err))
+      if (captureUsage("backup_import_failed", { error_class: importFailure }), isServerUnreachable(err))
         setOfflineMode(!0), serverUnreachableToast("import");
       else
         showToast(err.message || "Invalid backup file", !0);
@@ -50280,7 +50546,8 @@ var MONETIZATION_CONFIG = {
   mode: "freemium",
   freeTopicLimit: 5,
   supportUrl: "https://rzp.io/rzp/ypHoq1R",
-  proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R"
+  proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
+  proFeatures: ["unlimited_topics", "rss_auto_updates", "transcript_download"]
 }, STARTER_TOPICS = {
   "Tech & AI": ["AI Coding Agents", "Local LLMs", "System Design", "Rust & Go"],
   "Finance & Markets": ["Macroeconomics", "Value Investing", "Crypto Infrastructure"],
@@ -51098,6 +51365,8 @@ async function handleApi(input, init) {
   }
   if (path === "/api/entitlements" && method === "POST")
     return json2({ ok: !0, entitlements: { isPro: !1 } });
+  if (path === "/api/transcript" && method === "GET")
+    return json2({ error: "upgrade_required" }, 403);
   if (path === "/api/backup/export" && method === "GET")
     return new Response(await exportBackupJson(), {
       headers: { "Content-Type": "application/json" }

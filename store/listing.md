@@ -40,7 +40,7 @@ Built to run on its own:
   `chrome.storage.local` and is never included in backups or Chrome sync.
 - Topics, pins, and preferences live in `chrome.storage.sync` (and may sync through your own
   Chrome profile). Digests and counters live in IndexedDB.
-- The only network destinations are YouTube and Google's Gemini API, for actions you start.
+- Network destinations are YouTube and Google's Gemini API for actions you start, plus PostHog EU when you enable optional usage sharing.
 
 Requirements and limits:
 
@@ -117,3 +117,7 @@ Check the listing and any screenshots against this list before submission.
 - [ ] No claim that data is "encrypted end-to-end" or that the developer cannot see data
       because of encryption. Say instead that the developer does not receive the data.
 - [ ] No mention of payments, subscriptions, or a paid tier in the standalone v1 listing.
+
+### Optional usage statistics
+
+Optional usage statistics are off by default. Enable them in Settings to send feature-use counts, scan outcomes, bucketed counts and durations, browser family, extension version, and a random installation identifier to PostHog in the EU. We never send your Gemini key, topics, searches, pins, video details, transcripts, digests, backup contents, or raw errors. Events are retained for 3 months, with older events removed at monthly cleanup. Turn sharing off anytime in Settings.

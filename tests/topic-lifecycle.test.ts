@@ -61,6 +61,7 @@ test("dashboard: a late successful scan response cannot populate a re-added topi
   const h: any = {
     state: { sync: { topics: ["A"] }, digests: {}, metrics: {} },
     activeTopic: "A", scanningTopic: "", isServerOffline: false,
+    captureUsage: () => {}, durationBucket: () => "0-5s", scanErrorClass: () => "unknown",
     el: (id: string) => {
       if (!nodes.has(id)) nodes.set(id, { value: "1", addEventListener: (_event: string, fn: () => Promise<void>) => { click = fn; } });
       return nodes.get(id);

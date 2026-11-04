@@ -1,0 +1,180 @@
+{
+  "synthetic": true,
+  "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+  "events": [
+    {
+      "event": "dashboard_opened",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "has_api_key": false,
+        "topics_count_bucket": "2-5",
+        "digests_count_bucket": "0",
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "api_key_saved",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "scan_started",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "max_videos": 3,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "scan_completed",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "duration_bucket": "0-5s",
+        "videos_summarized": 2,
+        "requested_count": 3,
+        "skipped_count": 1,
+        "slop_filtered": 1,
+        "seconds_saved_delta": 120,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "scan_started",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "max_videos": 3,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "scan_failed",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "duration_bucket": "0-5s",
+        "error_class": "quota_or_rate_limit",
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "backup_exported",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "backup_export_failed",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "error_class": "unknown",
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "backup_import_failed",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "error_class": "invalid_backup",
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "backup_imported",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "topics_count_bucket": "2-5",
+        "digests_count_bucket": "1",
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "timestamp_clicked",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "browser": "chrome"
+      }
+    },
+    {
+      "event": "tts_played",
+      "distinct_id": "d041af1b-9fe8-4bf8-86d1-c756aa301904",
+      "properties": {
+        "$process_person_profile": false,
+        "$geoip_disable": true,
+        "ext_version": "1.0.0",
+        "build": "standalone",
+        "schema_version": 1,
+        "browser": "chrome"
+      }
+    }
+  ],
+  "errors": [],
+  "checks": [
+    "default off",
+    "opt-in",
+    "notice",
+    "key save",
+    "scan success and quota failure",
+    "backup export/import success/failure",
+    "no private inputs",
+    "one dashboard open per load",
+    "opt-out",
+    "reload off"
+  ]
+}

@@ -74,3 +74,7 @@ Manifest source of truth:
 - Do not describe the DNR rule as "spoofing" or "bypassing" in the store form. State what it
   does: it presents the request as same-origin so YouTube's own web API accepts extension
   requests, narrowly scoped to `/youtubei/` XHRs.
+
+## Host permission — `https://eu.i.posthog.com/*`
+
+> Sends only optional, explicitly enabled usage events to PostHog EU. Includes counts, buckets, outcome enums, browser family, version, and a random installation ID; never topics, video details, digests, or Gemini keys. No session replay or autocapture SDK is used.

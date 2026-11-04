@@ -46,6 +46,8 @@ export const MONETIZATION_CONFIG = {
   freeTopicLimit: 5,
   supportUrl: "https://rzp.io/rzp/ypHoq1R",
   proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
+  // Canonical Pro plan contents: transcript_download = per-video .txt download.
+  proFeatures: ["unlimited_topics", "rss_auto_updates", "transcript_download"],
 };
 
 export const STARTER_TOPICS: Record<string, string[]> = {

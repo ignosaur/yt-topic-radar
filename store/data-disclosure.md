@@ -14,14 +14,9 @@ key the user supplies. All processing runs in the browser; there is no developer
 
 ## 2. Does the developer collect user data?
 
-**No.** The developer does not receive, store, or have access to any user data. There is no
-developer-operated backend, no analytics or telemetry endpoint, no crash-reporting service, and
-no account system. The extension sends requests directly from the user's browser to YouTube and
-to Google's Gemini API.
+**Yes, when the user enables optional usage sharing (off by default).** Optional usage statistics are off by default. Enable them in Settings to send feature-use counts, scan outcomes, bucketed counts and durations, browser family, extension version, and a random installation identifier to PostHog in the EU. We never send your Gemini key, topics, searches, pins, video details, transcripts, digests, backup contents, or raw errors. Events are retained for 3 months, with older events removed at monthly cleanup. Turn sharing off anytime in Settings.
 
-Do not select any "collected" data category on the form. The data below is handled locally in
-the browser and/or sent to third parties at the user's direction; it does not reach the
-developer.
+Select **User activity** for feature-use events and **Personally identifiable information** for the persistent pseudonymous installation identifier (the store category includes personal identifiers). No account identity is collected. Other product data below stays local or is sent directly to YouTube/Gemini for user actions.
 
 ## 3. What data does the extension handle locally?
 
@@ -46,8 +41,7 @@ Only at the user's direction, directly from the user's browser:
 - **Google Gemini API (`https://generativelanguage.googleapis.com`)** — the content the user
   chooses to summarize, authenticated with the user's own API key.
 
-The developer is not a party to these requests and receives no copy. No other third parties are
-contacted.
+The developer receives no copy of YouTube/Gemini requests. With usage sharing enabled, limited usage events also go to PostHog EU (`https://eu.i.posthog.com`).
 
 ## 5. Is data sold, used for advertising, or used for credit/lending decisions?
 
@@ -72,8 +66,7 @@ developer. There is no OAuth, no Chrome identity permission, and no user profile
 Data remains on the user's device until the user deletes it or uninstalls the extension.
 Uninstalling removes local data (`chrome.storage.local` and IndexedDB). The Chrome sync copy of
 topics, pins, and preferences, if the user has sync enabled, is governed by the user's Google
-account and can be removed through Chrome sync settings or Google account data controls. Because
-the developer holds no data, there is nothing for the developer to retain or delete.
+account and can be removed through Chrome sync settings or Google account data controls. Optional PostHog usage events use a 3-month retention window, with monthly cleanup. Turning sharing off stops future events but does not erase earlier events. Deletion requests can identify the installation using `radarAnonId` from extension local storage.
 
 ## 9. Permissions used
 
@@ -98,12 +91,12 @@ Privacy policy URL: `[OWNER: privacy policy URL]`
 
 | Store form question | Answer |
 |---|---|
-| Collects user data? | No |
-| Data categories collected | None |
+| Collects user data? | Yes, opt-in usage statistics |
+| Data categories collected | User activity; Personally identifiable information (random installation identifier) |
 | Sold to third parties? | No |
 | Used for advertising? | No |
 | Used for credit/lending? | No |
 | Remote code? | No |
 | Authentication / accounts? | No (user-supplied Gemini key only) |
-| Third-party requests | YouTube and Google Gemini API, user-directed |
-| Data retention | Local until user deletes or uninstalls |
+| Third-party requests | YouTube and Google Gemini API; PostHog EU when usage sharing is enabled |
+| Data retention | Local until deletion/uninstall; PostHog events 3 months, monthly cleanup |

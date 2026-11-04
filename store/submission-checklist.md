@@ -70,8 +70,7 @@ Use these files as the source of truth; do not rewrite claims on the fly.
 - [ ] Paste the detailed description from `store/listing.md`.
 - [ ] Paste each permission justification from `store/permissions.md` into its matching field.
 - [ ] Complete the data-disclosure form using `store/data-disclosure.md`.
-- [ ] Confirm the disclosure selects **no collected data categories** (the developer receives no
-      data).
+- [ ] Confirm disclosure selects **User activity** and **Personally identifiable information** (random installation ID), describes opt-in sharing, and matches `store/data-disclosure.md`.
 - [ ] Confirm the listing includes the unofficial/not-affiliated statement and the Gemini-key and
       accuracy limits from `store/listing.md`.
 

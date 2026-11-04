@@ -3,7 +3,7 @@ import {
   shouldShowScanning,
   ttsSupportStatus,
 } from "./tts-scan-utils.js";
-import { buildCapturePayload, browserBucket } from "./telemetry-utils.js";
+import { buildCapturePayload, browserBucket, countBucket, durationBucket, scanErrorClass, importErrorClass } from "./telemetry-utils.js";
 
 const STANDALONE_ROUTE =
   typeof globalThis.__RADAR_STANDALONE__ === "function"
@@ -305,6 +305,10 @@ async function recordMetricEvent(event) {
       body: JSON.stringify({ event }),
     });
     const data = await res.json();
+    if (res.ok) {
+      const usageEvent = { timestampClick: "timestamp_clicked", ttsPlay: "tts_played" }[event];
+      if (usageEvent) void captureUsage(usageEvent);
+    }
     if (data?.metrics) {
       state.metrics = data.metrics;
       renderMetricsUI();
@@ -324,53 +328,53 @@ const POSTHOG_HOST =
     : "https://eu.i.posthog.com";
 const TELEMETRY_NOTICE_FLAG = "radarTelemetryNoticeShown";
 
-function ensureTelemetryNotice() {
+async function ensureTelemetryNotice() {
+  if (!STANDALONE_ROUTE) return;
   try {
-    if (!STANDALONE_ROUTE) return;
-    if (typeof chrome === "undefined" || !chrome.storage?.local) {
-      el("telemetryNotice")?.classList.remove("hidden");
-      return;
-    }
-    chrome.storage.local
-      .get([TELEMETRY_NOTICE_FLAG])
-      .then((stored) => {
-        if (stored?.[TELEMETRY_NOTICE_FLAG]) return;
-        el("telemetryNotice")?.classList.remove("hidden");
-        chrome.storage.local
-          .set({ [TELEMETRY_NOTICE_FLAG]: true })
-          .catch(() => {});
-      })
-      .catch(() => {});
-  } catch {}
+    const stored = await chrome.storage.local.get([TELEMETRY_NOTICE_FLAG]);
+    if (stored?.[TELEMETRY_NOTICE_FLAG]) return;
+    el("telemetryNotice")?.classList.remove("hidden");
+    await chrome.storage.local.set({ [TELEMETRY_NOTICE_FLAG]: true });
+  } catch {
+    el("telemetryNotice")?.classList.remove("hidden");
+  }
 }
 
-async function captureUsage(event, props) {
+let telemetryIdentity;
+let dashboardOpenCaptured = false;
+function captureDashboardOpened() {
+  if (!STANDALONE_ROUTE || !state.sync?.telemetryOptIn || dashboardOpenCaptured) return;
+  dashboardOpenCaptured = true;
+  void captureUsage("dashboard_opened", {
+    has_api_key: Boolean(state.hasApiKey),
+    topics_count_bucket: countBucket(state.sync.topics.length),
+    digests_count_bucket: countBucket(Object.keys(state.digests || {}).length),
+  });
+}
+
+async function captureUsage(event, props = {}) {
   try {
     if (!STANDALONE_ROUTE) return;
     if (!state.sync?.telemetryOptIn) return;
     if (!POSTHOG_KEY) return;
-    ensureTelemetryNotice();
+    await ensureTelemetryNotice();
     if (
       typeof chrome === "undefined" ||
       !chrome.storage?.local ||
       typeof crypto?.randomUUID !== "function"
     )
       return;
-    let anonId;
-    try {
-      const stored = await chrome.storage.local.get(["radarAnonId"]);
-      anonId = stored?.radarAnonId;
-    } catch {
-      return;
-    }
-    if (!anonId) {
-      try {
-        anonId = crypto.randomUUID();
-        await chrome.storage.local.set({ radarAnonId: anonId });
-      } catch {
-        return;
-      }
-    }
+    // A shared promise keeps concurrent first events on the same installation ID.
+    telemetryIdentity ||= chrome.storage.local.get(["radarAnonId"]).then(async (stored) => {
+      const id = stored?.radarAnonId || crypto.randomUUID();
+      if (!stored?.radarAnonId) await chrome.storage.local.set({ radarAnonId: id });
+      return id;
+    });
+    const anonId = await telemetryIdentity.catch(() => {
+      telemetryIdentity = undefined;
+      return null;
+    });
+    if (!anonId || !state.sync?.telemetryOptIn) return;
     let version = "";
     try {
       version = chrome.runtime?.getManifest?.()?.version || "";
@@ -421,6 +425,7 @@ async function loadState() {
       }
       initialLoadDone = true;
       resetRssUnread();
+      captureDashboardOpened();
     }
     if (!state.sync.topics.includes(activeTopic)) {
       activeTopic = state.sync.topics[0] || "";
@@ -782,6 +787,10 @@ function renderMainDigest() {
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
   })();
 
+  // Transcript download is a Pro plan feature (see proFeatures in storage.ts):
+  // hidden entirely unless Pro — no greyed teaser in V1.
+  const transcriptPro = isPro();
+
   const videosHtml = digest.videos
     .map((v, idx) => {
       const verdictColor =
@@ -836,6 +845,7 @@ function renderMainDigest() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button data-tts="${idx}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">🔊 Read Aloud</button>
+              ${transcriptPro ? `<button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>` : ""}
               <button data-pin-id="${esc(v.channelId)}" data-pin-name="${esc(v.channelName)}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">📌 Pin Channel</button>
             </div>
           </div>
@@ -939,6 +949,16 @@ function renderMainDigest() {
         .map((c) => `At ${c.timestamp}, ${c.sectionTitle}: ${c.keyPoints.join(". ")}`)
         .join(". ")}`;
       speakText(script);
+    });
+  });
+
+  // Bind Transcript Download (Pro-only; button isn't rendered when free)
+  container.querySelectorAll("[data-transcript]").forEach((btn) => {
+    btn.addEventListener("click", async () => {
+      const idx = Number(btn.getAttribute("data-transcript"));
+      const v = digest.videos[idx];
+      if (!v) return;
+      await downloadTranscript(v);
     });
   });
 
@@ -1097,6 +1117,51 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
   }
 }
 
+// Plain-text transcript format (one [MM:SS] line per block). If format specs
+// later call for .srt/.vtt, only this formatter changes — endpoint stays JSON.
+function transcriptToText(video, blocks) {
+  const lines = [
+    video.title,
+    `Channel: ${video.channelName}`,
+    `https://www.youtube.com/watch?v=${video.videoId}`,
+    "",
+  ];
+  for (const b of blocks) lines.push(`[${b.timestamp}] ${b.text}`);
+  return lines.join("\n");
+}
+
+async function downloadTranscript(v) {
+  try {
+    const res = await fetch(`/api/transcript?videoId=${encodeURIComponent(v.videoId)}`);
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 403) {
+      showToast("Transcript download is a Pro feature — upgrade to unlock", true);
+      return;
+    }
+    if (!res.ok || !Array.isArray(data.blocks) || data.blocks.length === 0) {
+      throw new Error(data.error || "Transcript unavailable for this video");
+    }
+    const blob = new Blob([transcriptToText(v, data.blocks)], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    const safe = v.title.replace(/[^\w\- ]+/g, "").trim().slice(0, 60) || v.videoId;
+    a.download = `${safe}-${v.videoId}.txt`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+    showToast("Downloaded transcript");
+  } catch (err) {
+    if (isServerUnreachable(err)) {
+      setOfflineMode(true);
+      serverUnreachableToast("download transcript");
+    } else {
+      showToast(err?.message || "Transcript download failed", true);
+    }
+  }
+}
+
 // Event Listeners
 el("btnToggleSidebar")?.addEventListener("click", () => {
   const isOpen = el("topicsSidebar")?.classList.contains("sidebar-open");
@@ -1125,10 +1190,11 @@ el("btnDismissTelemetryNotice")?.addEventListener("click", () => {
   } catch {}
 });
 
-el("telemetryToggle").addEventListener("change", (e) => {
-  saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) });
+el("telemetryToggle").addEventListener("change", async (e) => {
+  await saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) });
+  captureDashboardOpened();
   showToast(
-    e.target.checked
+    state.sync.telemetryOptIn
       ? "Anonymous usage stats enabled"
       : "Anonymous usage stats disabled"
   );
@@ -1225,6 +1291,7 @@ el("btnSaveKey").addEventListener("click", async () => {
     return;
   }
   el("apiKeyInput").value = "";
+  void captureUsage("api_key_saved");
   showToast("Saved Gemini API key");
   await loadState();
 });
@@ -1283,6 +1350,9 @@ el("btnScanTopic").addEventListener("click", async () => {
   }
   if (!activeTopic || scanningTopic) return;
   const topic = activeTopic;
+  const scanStartedAt = Date.now();
+  const metricsBefore = { ...state.metrics };
+  let scanOutcome = "unknown";
   scanningTopic = topic;
   el("btnScanTopic").disabled = true;
   el("scanBtnText").textContent = "Scanning...";
@@ -1291,6 +1361,7 @@ el("btnScanTopic").addEventListener("click", async () => {
 
   try {
     const maxVideos = Number(el("scanCountSelect").value || 3);
+    void captureUsage("scan_started", { max_videos: maxVideos });
     const res = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -1298,6 +1369,7 @@ el("btnScanTopic").addEventListener("click", async () => {
     });
     const data = await res.json();
     if (!res.ok) {
+      scanOutcome = scanErrorClass(data.error);
       if (data.error === "provider_unavailable") {
         showToast("Gemini is temporarily unavailable. Please try again later.", true);
         return;
@@ -1328,6 +1400,15 @@ el("btnScanTopic").addEventListener("click", async () => {
         ? "Topic changed while scanning. Please scan it again."
         : data.error || "Scan failed");
     }
+    scanOutcome = null;
+    void captureUsage("scan_completed", {
+      duration_bucket: durationBucket(Date.now() - scanStartedAt),
+      videos_summarized: Math.max(0, (data.metrics?.videosSummarized || 0) - (metricsBefore.videosSummarized || 0)),
+      requested_count: Number(data.digest.requestedCount ?? data.digest.videos.length),
+      skipped_count: data.digest.skippedVideos?.length || 0,
+      slop_filtered: Math.max(0, (data.metrics?.slopVideosFiltered || 0) - (metricsBefore.slopVideosFiltered || 0)),
+      seconds_saved_delta: Math.max(0, (data.metrics?.secondsSaved || 0) - (metricsBefore.secondsSaved || 0)),
+    });
     setOfflineMode(false);
     // Reload authoritative state: deletion/re-addition may have happened during this scan.
     await loadState();
@@ -1357,6 +1438,10 @@ el("btnScanTopic").addEventListener("click", async () => {
       showToast(err.message || "Scan failed", true);
     }
   } finally {
+    if (scanOutcome !== null) void captureUsage("scan_failed", {
+      duration_bucket: durationBucket(Date.now() - scanStartedAt),
+      error_class: scanOutcome,
+    });
     scanningTopic = "";
     el("btnScanTopic").disabled = isServerOffline;
     el("scanBtnText").textContent = "Scan Topic Now";
@@ -1378,8 +1463,10 @@ el("btnExportBackup").addEventListener("click", async () => {
     a.click();
     a.remove();
     URL.revokeObjectURL(url);
+    void captureUsage("backup_exported");
     showToast("Exported backup .json");
   } catch (err) {
+    void captureUsage("backup_export_failed", { error_class: "unknown" });
     showToast(err?.message || "Export failed", true);
   }
 });
@@ -1388,6 +1475,7 @@ el("btnExportBackup").addEventListener("click", async () => {
 el("inputImportBackup").addEventListener("change", async (e) => {
   const file = e.target.files?.[0];
   if (!file) return;
+  let importFailure = "unknown";
   try {
     const text = await file.text();
     const res = await fetch("/api/backup/import", {
@@ -1395,13 +1483,21 @@ el("inputImportBackup").addEventListener("change", async (e) => {
       body: text,
     });
     const data = await res.json();
-    if (!res.ok) throw new Error(data.error || "Import failed");
+    if (!res.ok) {
+      importFailure = importErrorClass(data.error);
+      throw new Error(data.error || "Import failed");
+    }
+    void captureUsage("backup_imported", {
+      topics_count_bucket: countBucket(data.topicsCount),
+      digests_count_bucket: countBucket(data.digestsCount),
+    });
     setOfflineMode(false);
     showToast(
       `Restored ${data.topicsCount} topics & ${data.digestsCount} digests`
     );
     await loadState();
   } catch (err) {
+    void captureUsage("backup_import_failed", { error_class: importFailure });
     if (isServerUnreachable(err)) {
       setOfflineMode(true);
       serverUnreachableToast("import");

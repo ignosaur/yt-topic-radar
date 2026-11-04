@@ -155,13 +155,13 @@
       <p>
         This policy applies to the standalone browser extension. It explains what the extension
         stores on your device, what it sends over the network, and what it never collects. The
-        extension has no developer-operated backend, no user accounts, and no analytics service.
+        extension has no developer-operated backend or user accounts. Optional usage analytics are processed by PostHog in the EU when you enable sharing in Settings.
       </p>
       <p class="note">
         In short: your topics, pins, and preferences are stored in your browser (and may sync
         through your own Chrome profile). Your Gemini API key is stored only on this device.
         Digests, usage counters, and seen-video IDs are stored in this browser's IndexedDB.
-        The extension talks only to YouTube and to Google's Gemini API, using your own API key.
+        The extension talks to YouTube and to Google's Gemini API using your own API key, and to PostHog only when you enable optional usage sharing.
       </p>
     </section>
 
@@ -221,7 +221,7 @@
       <h2 id="off-device">3. Data sent off your device</h2>
       <p>
         The extension sends network requests only for the actions you start, and only to the
-        following destinations.
+        following destinations (PostHog requests occur only with optional usage sharing enabled).
       </p>
       <ul>
         <li>
@@ -236,19 +236,20 @@
           you provide and include the video information and transcript text needed to produce the
           summary.
         </li>
+        <li><strong><code>https://eu.i.posthog.com</code></strong> — optional usage counts, scan outcomes, buckets, browser family, extension version, and a random installation ID; no content or Gemini key.</li>
       </ul>
       <p>
         There is no developer-operated server in the request path. The developer does not receive
-        your topics, digests, API key, transcripts, or usage data.
+        your topics, digests, API key, or transcripts. With usage sharing enabled, the developer can view the limited usage events described below in PostHog.
       </p>
     </section>
 
     <section aria-labelledby="never">
       <h2 id="never">4. What we never collect</h2>
       <ul>
-        <li>No developer server or relay: the extension does not send data to the developer.</li>
+        <li>No developer server or relay for YouTube or Gemini requests.</li>
         <li>No user accounts and no sign-in to the extension.</li>
-        <li>No analytics, telemetry, crash-reporting, or advertising endpoint is wired up.</li>
+        <li>No automatic pageview/click capture, session recording, crash reporting, or advertising tracking.</li>
         <li>No sale of data, no advertising profiles, and no credit or lending decisions.</li>
         <li>No collection of your general browsing history. The extension only acts on searches
           and videos you explicitly choose to scan.</li>
@@ -256,9 +257,7 @@
           never sent anywhere except Google's Gemini API.</li>
       </ul>
       <p>
-        The extension includes an optional “share anonymous usage stats” preference. It is off by
-        default. In the current release it only stores that preference locally; no statistics are
-        transmitted anywhere, because no analytics endpoint exists.
+        Optional usage statistics are off by default. Enable them in Settings to send feature-use counts, scan outcomes, bucketed counts and durations, browser family, extension version, and a random installation identifier to PostHog in the EU. We never send your Gemini key, topics, searches, pins, video details, transcripts, digests, backup contents, or raw errors. Events are retained for 3 months, with older events removed at monthly cleanup. Turn sharing off anytime in Settings. The identifier is pseudonymous: it links events from the same installation without identifying your account. It is stored only in chrome.storage.local, never synced or included in backups. IP addresses are not stored with events, and location enrichment is disabled in our payloads; the network service still processes the source IP to receive requests.
       </p>
     </section>
 
@@ -280,7 +279,7 @@
     <section aria-labelledby="retention">
       <h2 id="retention">6. Retention and deletion</h2>
       <ul>
-        <li>Data stays on your device until you delete it or remove the extension.</li>
+        <li>Local product data stays on your device until you delete it or remove the extension. Optional PostHog usage events follow the separate retention window below.</li>
         <li>You can delete topics, pinned channels, or digests from the extension interface.</li>
         <li>Uninstalling the extension removes its local data, including
           <code>chrome.storage.local</code> and IndexedDB entries.</li>
@@ -289,8 +288,7 @@
           synced data in your Chrome sync settings or your Google account's data controls.</li>
       </ul>
       <p>
-        Because the developer does not receive your data, there is no server-side copy for the
-        developer to delete.
+        Optional PostHog usage events expire after the 3-month window at monthly cleanup. Turning sharing off or uninstalling stops future collection; it does not delete events already received. For a deletion request, contact the developer with the radarAnonId value from the extension’s chrome.storage.local (available through extension developer tools). Clearing local storage or reinstalling creates a new installation identifier.
       </p>
     </section>
 

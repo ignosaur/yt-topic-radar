@@ -51,8 +51,9 @@
         <div id="settingsMetricsGrid" class="grid grid-cols-2 gap-1.5 text-[11px] text-slate-400"></div>
         <label class="flex items-center gap-2 pt-1 cursor-pointer text-slate-300">
           <input id="telemetryToggle" type="checkbox" class="rounded bg-slate-900 border-slate-700 text-red-600 focus:ring-0" />
-          <span>Share anonymous usage stats</span>
+          <span>Share anonymous usage stats (optional)</span>
         </label>
+        <p class="text-[11px] text-slate-500">Off by default. Counts and scan outcomes go to PostHog (EU), linked by a random installation ID, for 3 months. Never your topics, video details, digests, or Gemini key. Turning sharing off stops future events.</p>
         <label class="flex items-center gap-2 pt-1 cursor-pointer text-slate-300">
           <input id="proToggle" type="checkbox" class="rounded bg-slate-900 border-slate-700 text-red-600 focus:ring-0" />
           <span>Pro (I paid) — unlimited topics + RSS auto-updates & alerts</span>
@@ -174,7 +175,7 @@
     <!-- Anonymous usage notice (G3): shown once before any capture; dismiss persists in chrome.storage.local -->
     <div id="telemetryNotice" class="hidden px-6 pt-3">
       <div class="flex items-start gap-2 text-[11px] text-slate-400 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2">
-        <span class="flex-1">📊 Anonymous usage stats help keep Topic Digest free — counts only (scans, features used), never your topics, keys, or video titles. Turn off anytime in Settings.</span>
+        <span class="flex-1">📊 Optional usage stats are off by default. Enable them in Settings to share counts and scan outcomes with PostHog (EU), using a random installation ID, for 3 months. Never your topics, keys, or video details. Turn sharing off anytime.</span>
         <button id="btnDismissTelemetryNotice" class="shrink-0 text-slate-500 hover:text-slate-200 px-1" aria-label="Dismiss usage-stats notice">✕</button>
       </div>
     </div>

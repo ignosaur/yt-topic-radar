@@ -1,0 +1,22 @@
+{
+  "verified_at": "2026-11-04T16:43:46.918Z",
+  "event_types": [
+    "dashboard_opened",
+    "api_key_saved",
+    "scan_started",
+    "scan_completed",
+    "scan_failed",
+    "timestamp_clicked",
+    "tts_played",
+    "backup_exported",
+    "backup_export_failed",
+    "backup_imported",
+    "backup_import_failed"
+  ],
+  "event_types_count": 11,
+  "stored_rows_inspected": 23,
+  "all_expected_properties_present": true,
+  "no_unexpected_properties": true,
+  "no_ip_or_geo_fields": true,
+  "all_events_propertyless": true
+}

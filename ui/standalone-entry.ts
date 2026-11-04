@@ -175,6 +175,13 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
     return json({ ok: true, entitlements: { isPro: false } });
   }
 
+  if (path === "/api/transcript" && method === "GET") {
+    // Pro plan feature (see proFeatures in storage.ts). Standalone v1 has no
+    // Pro entitlements (buildState hardcodes isPro:false), so it stays locked
+    // here too — mirrors the server route's 403 instead of giving it away.
+    return json({ error: "upgrade_required" }, 403);
+  }
+
   if (path === "/api/backup/export" && method === "GET") {
     return new Response(await exportBackupJson(), {
       headers: { "Content-Type": "application/json" },

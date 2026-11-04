@@ -1,5 +1,19 @@
 # Anonymous usage capture (PostHog) — implementation plan
 
+## Current implementation — 2026-11-04 (supersedes historical default-on instructions below)
+
+- Consent variant B is implemented: sharing is opt-in, OFF by default, and can be disabled in Settings. The default-on paragraphs below describe a superseded proposal, not shipped behavior.
+- EU project `334499` (`Topic Digest`), ingestion `https://eu.i.posthog.com`; configured public token is supplied through the existing build-time `POSTHOG_KEY` environment variable. No SDK/dependency added.
+- Event retention is **3 months** (PostHog accepts whole months, not exactly 90 days), confirmed saved in the UI. Older events are removed at monthly cleanup.
+- All 11 schema event types are wired. The first successful state load sends one `dashboard_opened` if already opted in; opting in during a page load sends that event once if it has not been sent. Later state reloads do not recount opens.
+- Scan completion deltas snapshot metrics before the request and are emitted before state reload. `videos_summarized` counts newly summarized videos, not reused digest entries; a fully reused scan can have zero fresh videos.
+- Success rate definition: completed / (completed + failed), excluding `scan_in_progress` and `topic_changed` aborts. Report aborts separately; started minus terminal is an abandonment indicator, not an exact count across reporting-window boundaries. Closing the page can censor long scans.
+- Import HTTP validation errors use `importErrorClass`; file-read/network/unstructured failures use `unknown`. No raw messages are sent.
+- Notice is rendered before sending; installation-ID creation is shared across concurrent first events, and consent is rechecked after asynchronous setup. Identity remains local, outside backups/sync.
+- Store source copy now describes opt-in PostHog usage, pseudonymous installation identity, and 3-month retention. Publishing hosted policy/store disclosures and checking upgrade permission prompts remain release tasks.
+- Verification evidence and limits: [verification report](telemetry-verification-2026-11-04.md).
+
+
 ## Problem
 The shipped standalone extension gives us no visibility into real usage: no
 scan success/failure rates, no feature-use data, no activation signal. Chrome
@@ -482,6 +496,6 @@ settled as noted).
 
 ## Decisions (to record at implementation)
 - [x] PostHog region + endpoint host: EU — `https://eu.i.posthog.com` (Item 3/8 default; override via `POSTHOG_HOST` at build time)
-- [x] Event retention period: 90 days
+- [x] Event retention period: 3 months (requested as 90 days; actual PostHog whole-month setting)
 - [x] Default-on risk accepted (D3): no — variant B (opt-in toggle kept, checkbox default OFF; see consent-variant note)
 - [ ] Public wording approved as written above: yes / no
