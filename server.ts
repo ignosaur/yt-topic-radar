@@ -1,3 +1,7 @@
+import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI as PostHogGoogleGenAI } from "@posthog/ai/gemini";
+import { posthog } from "./lib/posthog";
+import { posthogLog } from "./lib/posthog-logs";
 import {
   searchAndFilterTopicWithStats,
   fetchTimestampedTranscript,
@@ -9,6 +13,8 @@ import {
 import {
   summarizeVideo,
   synthesizeTopicDigest,
+  type AiObservabilityContext,
+  type GeminiClient,
   type TopicDigest,
 } from "./lib/summarizer";
 import { ProviderAvailabilityError, ProviderConfigError, ProviderFailureError, providerErrorResponse } from "./lib/provider-errors";
@@ -38,6 +44,12 @@ import {
 } from "./lib/storage";
 
 const PORT = Number(process.env.PORT || 3456);
+
+function createGeminiClient(apiKey: string): GeminiClient {
+  return posthog
+    ? new PostHogGoogleGenAI({ apiKey, posthog }) as GeminiClient
+    : new GoogleGenAI({ apiKey });
+}
 
 // Single-flight guard: at most one topic scan runs at a time (protects Gemini
 // quota when two tabs / the extension panel scan concurrently). In-memory on
@@ -147,6 +159,10 @@ async function runScan(
   opts: { scanTimeoutMs?: number } = {}
 ): Promise<{ status: number; body: unknown }> {
   const scanStartedAt = Date.now();
+  const ai = createGeminiClient(apiKey);
+  const observability: AiObservabilityContext | undefined = posthog
+    ? { sessionId: `process-${process.pid}`, traceId: crypto.randomUUID() }
+    : undefined;
   console.log(`[scan] start topic="${sanitizeTopic(topic)}" requested=${maxVideos}`);
   // Item 7: scan-level deadline. On timeout the scan settles promptly and frees
   // the lock (route handler finally); the superseded body below keeps running
@@ -210,7 +226,7 @@ async function runScan(
       if (reused) return reused;
       try {
         const t = await fetchTimestampedTranscript(v.videoId, undefined, { signal: scanSignal.signal });
-        const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
+        const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters, ai, observability);
         console.log(`[scan] video=${v.videoId} summarized transcriptBlocks=${t.blocks.length} durationMs=${Date.now() - videoStartedAt}`);
         secondsSavedDelta += Math.max(60, (v.durationSec || 600) - 90);
         seenVideoIds.push(v.videoId);
@@ -256,7 +272,7 @@ async function runScan(
         crossVideoSynthesis: previous!.crossVideoSynthesis,
         suggestedSubtopics: previous!.suggestedSubtopics,
       }
-    : await synthesizeTopicDigest(apiKey, topic, summaries);
+    : await synthesizeTopicDigest(apiKey, topic, summaries, ai, observability);
   console.log(`[scan] synthesis done topic="${sanitizeTopic(topic)}" elapsedMs=${Date.now() - scanStartedAt}`);
   const digest: TopicDigest = {
     topic,
@@ -420,6 +436,14 @@ const server = Bun.serve({
       }
       try {
         const sync = await saveSyncState(next, typeof body.revision === "number" ? body.revision : undefined);
+        posthog?.capture({
+          event: "sync_state_updated",
+          properties: {
+            topic_count: next.topics.length,
+            pinned_channel_count: next.pinnedChannels.length,
+            telemetry_opted_in: next.telemetryOptIn,
+          },
+        });
         return json({ ok: true, sync });
       } catch (err) {
         if (err instanceof StaleSyncError) return json({ error: "stale_state" }, 409);
@@ -437,6 +461,10 @@ const server = Bun.serve({
         return json({ error: "isPro boolean required" }, 400);
       }
       const entitlements = await setEntitlements({ isPro: body.isPro });
+      posthog?.capture({
+        event: "pro_entitlement_updated",
+        properties: { is_pro: entitlements.isPro },
+      });
       return json({ ok: true, entitlements });
     }
 
@@ -448,8 +476,16 @@ const server = Bun.serve({
       let metrics = await getMetrics();
       if (body.event === "timestampClick") {
         metrics = await updateMetrics({ timestampClicks: 1 });
+        posthog?.capture({
+          event: "usage_metric_recorded",
+          properties: { usage_type: "timestamp_click" },
+        });
       } else if (body.event === "ttsPlay") {
         metrics = await updateMetrics({ ttsPlays: 1 });
+        posthog?.capture({
+          event: "usage_metric_recorded",
+          properties: { usage_type: "tts_play" },
+        });
       }
       return json({ ok: true, metrics });
     }
@@ -463,6 +499,7 @@ const server = Bun.serve({
         return json({ error: "API key required" }, 400);
       }
       await saveApiKey(body.apiKey);
+      posthog?.capture({ event: "gemini_api_key_saved" });
       return json({ ok: true });
     }
 
@@ -471,6 +508,7 @@ const server = Bun.serve({
       const parsed = await readJsonObject(req);
       if (!parsed.ok) return json({ error: "invalid_json" }, 400);
       await clearApiKey();
+      posthog?.capture({ event: "gemini_api_key_cleared" });
       return json({ ok: true });
     }
 
@@ -511,6 +549,16 @@ const server = Bun.serve({
         activeScan = { topic, since: scanStartedAt };
         try {
           const result = await runScan(topic, maxVideos, apiKey);
+          if (result.status === 200) {
+            posthog?.capture({
+              event: "topic_scan_completed",
+              properties: { requested_video_count: maxVideos },
+            });
+            posthogLog("info", "topic_scan_completed", {
+              requested_video_count: maxVideos,
+              duration_ms: Date.now() - scanStartedAt,
+            });
+          }
           return json(result.body, result.status);
         } finally {
           // Owner-only release: compare identity, not just topic — a scan that
@@ -521,7 +569,9 @@ const server = Bun.serve({
           }
         }
       } catch (err: any) {
-        console.log(`[scan] request failed error=${scanErrorLabel(err)}`);
+        const errorCategory = scanErrorLabel(err);
+        console.log(`[scan] request failed error=${errorCategory}`);
+        posthogLog("error", "topic_scan_failed", { error_category: errorCategory });
         if (err instanceof ProviderAvailabilityError) return json(providerErrorResponse(err), 429);
         if (err instanceof ProviderConfigError) return json(providerErrorResponse(err), 403);
         if (err instanceof ProviderFailureError) return json(providerErrorResponse(err), 502);
@@ -542,6 +592,7 @@ const server = Bun.serve({
     // API: 1-Click Export Backup JSON
     if (url.pathname === "/api/backup/export" && req.method === "GET") {
       const backupJson = await exportBackupJson();
+      posthog?.capture({ event: "backup_exported" });
       const date = new Date().toISOString().slice(0, 10);
       return new Response(backupJson, {
         headers: {
@@ -557,6 +608,7 @@ const server = Bun.serve({
       try {
         const raw = await req.text();
         const stats = await importBackupJson(raw);
+        posthog?.capture({ event: "backup_imported" });
         return json({ ok: true, ...stats });
       } catch (err: any) {
         return json({ error: String(err?.message || err) }, 400);
@@ -568,3 +620,4 @@ const server = Bun.serve({
 });
 
 console.log(`🚀 Topic Digest for YouTube UI running at http://localhost:${server.port}`);
+posthogLog("info", "server_started", { port: server.port });
