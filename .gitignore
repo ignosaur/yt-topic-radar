@@ -19,6 +19,9 @@ build/
 # Chrome's unpacked-extension metadata dir
 extension/_metadata/
 
+# Firefox extension build output (regenerate with bun run build:ext:firefox)
+extension-firefox/
+
 # Extension build artifact (always regenerate with bun run build:ext + zip)
 yt-topic-radar-extension.zip
 

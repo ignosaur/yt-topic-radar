@@ -40,13 +40,21 @@ bun run scan "AI Coding Agents" 3
 
 It prints the filtered candidates, transcript stats, per-video summaries and the cross-video synthesis.
 
-## Chrome / Brave extension
+## Chrome / Brave / Edge extension
 
 ```bash
 bun run build:ext        # standalone prod bundle (no server needed)
 bun run build:ext:dev    # dev shell — requires `bun run ui` on :3456
 bun run package:chrome   # build + dist/yt-topic-radar-v<version>.zip + verify
 ```
+
+## Firefox extension
+
+```bash
+bun run package:firefox  # build + dist/yt-topic-radar-firefox-v<version>.zip + verify
+```
+
+The Firefox build is the same bundle with a variant manifest (`sidebar_action` instead of `side_panel`, `background.scripts` instead of `service_worker`, plus the `gecko.id` AMO requires). It is packaged and statically verified, but **not yet load- or scan-tested in a real Firefox** — load-test it before distributing. To try it, open `about:debugging → This Firefox → Load Temporary Add-on` and select the `extension-firefox/manifest.json` file (not the folder). The gecko id (`topic-digest-youtube@yt-topic-radar`) is permanent once signed and must be globally unique on AMO. For distribution, upload the zip to AMO for signing (unlisted) to get an installable `.xpi`.
 
 `package:chrome` refuses localhost/dev artifacts, writes a reproducible zip (fixed mtimes, sorted entries), and runs `scripts/verify-package.ts` (permissions, DNR ruleset, no RSS/alarm code). Store copy and disclosure drafts live in `store/`.
 

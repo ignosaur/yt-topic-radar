@@ -6,9 +6,15 @@ const ROOT = resolve(import.meta.dir, "..");
 const PKG_PATH = join(ROOT, "package.json");
 const DIST_DIR = join(ROOT, "dist");
 
-const EXPECTED_PERMISSIONS = [
+const EXPECTED_PERMISSIONS_CHROME = [
   "storage",
   "sidePanel",
+  "tabs",
+  "declarativeNetRequestWithHostAccess",
+];
+
+const EXPECTED_PERMISSIONS_FIREFOX = [
+  "storage",
   "tabs",
   "declarativeNetRequestWithHostAccess",
 ];
@@ -71,7 +77,7 @@ function findNewestZip(): string | undefined {
   }
   const candidates: Array<{ path: string; mtime: number }> = [];
   for (const name of names) {
-    if (!/^yt-topic-radar-v.+\.zip$/.test(name)) continue;
+    if (!/^yt-topic-radar(?:-firefox)?-v.+\.zip$/.test(name)) continue;
     const path = join(DIST_DIR, name);
     try {
       const stat = statSync(path);
@@ -86,7 +92,9 @@ function findNewestZip(): string | undefined {
 
 const packageVersion = readPackageVersion();
 
-const zipArg = process.argv[2];
+const rawArgs = process.argv.slice(2);
+const explicitTarget = rawArgs.find((arg) => arg === "chrome" || arg === "firefox");
+const zipArg = rawArgs.find((arg) => arg !== "chrome" && arg !== "firefox");
 let zipPath: string;
 if (zipArg) {
   zipPath = resolve(zipArg);
@@ -95,7 +103,7 @@ if (zipArg) {
 } else {
   const newest = findNewestZip();
   if (!newest) {
-    fatal(`no dist/yt-topic-radar-v*.zip found; run \`bun run package:chrome\` first`);
+    fatal(`no dist/yt-topic-radar-v*.zip found; run \`bun run package:chrome\` or \`bun run package:firefox\` first`);
   }
   zipPath = newest;
 }
@@ -182,9 +190,17 @@ function countOccurrences(haystack: string, needle: string): number {
 
 // 1. Zip filename version matches package.json version.
 const zipName = basename(zipPath);
-const nameMatch = zipName.match(/^yt-topic-radar-v(.+)\.zip$/);
+const nameTarget = zipName.includes("-firefox-") ? "firefox" : "chrome";
+if (explicitTarget && explicitTarget !== nameTarget) {
+  fatal(`expected a ${explicitTarget} zip, got ${zipName}`);
+}
+const target = explicitTarget ?? nameTarget;
+console.log(`verifying ${zipPath} as ${target}`);
+const EXPECTED_PERMISSIONS =
+  target === "firefox" ? EXPECTED_PERMISSIONS_FIREFOX : EXPECTED_PERMISSIONS_CHROME;
+const nameMatch = zipName.match(/^yt-topic-radar(?:-firefox)?-v(.+)\.zip$/);
 if (!nameMatch?.[1]) {
-  check("filename", false, `expected yt-topic-radar-v<version>.zip, got ${zipName}`);
+  check("filename", false, `expected yt-topic-radar[-firefox]-v<version>.zip, got ${zipName}`);
 } else {
   check(
     "filename",
@@ -257,6 +273,12 @@ if (manifestRaw === undefined) {
 }
 
 if (manifest) {
+  check(
+    "manifest version",
+    manifest.version === packageVersion,
+    `expected ${packageVersion}, got ${JSON.stringify(manifest.version)}`,
+  );
+
   const permissions = manifest.permissions;
   check(
     "manifest permissions",
@@ -290,12 +312,38 @@ if (manifest) {
   );
 
   const background = asRecord(manifest.background);
-  const serviceWorker = background?.service_worker;
-  check(
-    "manifest background.service_worker",
-    serviceWorker === "background.js",
-    `got ${JSON.stringify(serviceWorker)}`,
-  );
+  if (target === "firefox") {
+    const scripts = background?.scripts;
+    check(
+      "manifest background.scripts",
+      Array.isArray(scripts) && scripts.includes("background.js"),
+      `got ${JSON.stringify(scripts)}`,
+    );
+    const gecko = asRecord(asRecord(manifest.browser_specific_settings)?.gecko);
+    check(
+      "manifest gecko id",
+      typeof gecko?.id === "string" && gecko.id.length > 0,
+      `got ${JSON.stringify(gecko?.id)}`,
+    );
+    const sidebar = asRecord(manifest.sidebar_action);
+    check(
+      "manifest sidebar_action panel",
+      sidebar?.default_panel === "digest.html",
+      `got ${JSON.stringify(sidebar?.default_panel)}`,
+    );
+    check(
+      "manifest no side_panel",
+      manifest.side_panel === undefined,
+      `got ${JSON.stringify(manifest.side_panel)}`,
+    );
+  } else {
+    const serviceWorker = background?.service_worker;
+    check(
+      "manifest background.service_worker",
+      serviceWorker === "background.js",
+      `got ${JSON.stringify(serviceWorker)}`,
+    );
+  }
 
   const dnr = asRecord(manifest.declarative_net_request);
   const ruleResources = dnr?.rule_resources;

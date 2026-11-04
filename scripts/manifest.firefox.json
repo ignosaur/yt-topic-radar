@@ -1,0 +1,51 @@
+{
+  "manifest_version": 3,
+  "name": "Topic Digest for YouTube",
+  "version": "1.0.0",
+  "description": "Subscribe to topics on YouTube, filter out clickbait, and get deep timestamped AI summaries. Unofficial; not affiliated with YouTube.",
+  "browser_specific_settings": {
+    "gecko": {
+      "id": "topic-digest-youtube@yt-topic-radar",
+      "strict_min_version": "115.0"
+    }
+  },
+  "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
+  "host_permissions": [
+    "https://www.youtube.com/*",
+    "https://generativelanguage.googleapis.com/*"
+  ],
+  "icons": {
+    "16": "icons/icon16.png",
+    "32": "icons/icon32.png",
+    "48": "icons/icon48.png",
+    "128": "icons/icon128.png"
+  },
+  "action": {
+    "default_title": "Open Topic Digest",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    }
+  },
+  "sidebar_action": {
+    "default_title": "Open Topic Digest",
+    "default_panel": "digest.html",
+    "default_icon": {
+      "16": "icons/icon16.png",
+      "32": "icons/icon32.png"
+    },
+    "open_at_install": false
+  },
+  "background": {
+    "scripts": ["background.js"]
+  },
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "radar_headers",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  }
+}
