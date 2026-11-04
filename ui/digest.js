@@ -3,6 +3,7 @@ import {
   shouldShowScanning,
   ttsSupportStatus,
 } from "./tts-scan-utils.js";
+import { buildCapturePayload, browserBucket } from "./telemetry-utils.js";
 
 const STANDALONE_ROUTE =
   typeof globalThis.__RADAR_STANDALONE__ === "function"
@@ -308,6 +309,99 @@ async function recordMetricEvent(event) {
       state.metrics = data.metrics;
       renderMetricsUI();
     }
+  } catch {}
+}
+
+// --- Anonymous usage capture (PostHog, Item 3 variant B) ---
+// Standalone-only, opt-in gated, fire-and-forget. Never throws into callers.
+// shortcut: events are lost if the page closes mid-send; add a persisted
+// queue only if scan-completion counts prove unreliable.
+const POSTHOG_KEY =
+  typeof __RADAR_POSTHOG_KEY__ !== "undefined" ? __RADAR_POSTHOG_KEY__ : "";
+const POSTHOG_HOST =
+  typeof __RADAR_POSTHOG_HOST__ !== "undefined" && __RADAR_POSTHOG_HOST__
+    ? __RADAR_POSTHOG_HOST__
+    : "https://eu.i.posthog.com";
+const TELEMETRY_NOTICE_FLAG = "radarTelemetryNoticeShown";
+
+function ensureTelemetryNotice() {
+  try {
+    if (!STANDALONE_ROUTE) return;
+    if (typeof chrome === "undefined" || !chrome.storage?.local) {
+      el("telemetryNotice")?.classList.remove("hidden");
+      return;
+    }
+    chrome.storage.local
+      .get([TELEMETRY_NOTICE_FLAG])
+      .then((stored) => {
+        if (stored?.[TELEMETRY_NOTICE_FLAG]) return;
+        el("telemetryNotice")?.classList.remove("hidden");
+        chrome.storage.local
+          .set({ [TELEMETRY_NOTICE_FLAG]: true })
+          .catch(() => {});
+      })
+      .catch(() => {});
+  } catch {}
+}
+
+async function captureUsage(event, props) {
+  try {
+    if (!STANDALONE_ROUTE) return;
+    if (!state.sync?.telemetryOptIn) return;
+    if (!POSTHOG_KEY) return;
+    ensureTelemetryNotice();
+    if (
+      typeof chrome === "undefined" ||
+      !chrome.storage?.local ||
+      typeof crypto?.randomUUID !== "function"
+    )
+      return;
+    let anonId;
+    try {
+      const stored = await chrome.storage.local.get(["radarAnonId"]);
+      anonId = stored?.radarAnonId;
+    } catch {
+      return;
+    }
+    if (!anonId) {
+      try {
+        anonId = crypto.randomUUID();
+        await chrome.storage.local.set({ radarAnonId: anonId });
+      } catch {
+        return;
+      }
+    }
+    let version = "";
+    try {
+      version = chrome.runtime?.getManifest?.()?.version || "";
+    } catch {}
+    let browser;
+    try {
+      browser = browserBucket(
+        navigator.userAgent,
+        Boolean(navigator.brave),
+        navigator.userAgentData?.brands
+      );
+    } catch {
+      browser = undefined;
+    }
+    const payload = buildCapturePayload({
+      apiKey: POSTHOG_KEY,
+      event,
+      distinctId: anonId,
+      version,
+      props: { ...(props || {}), browser },
+    });
+    const host = String(POSTHOG_HOST || "https://eu.i.posthog.com").replace(
+      /\/+$/,
+      ""
+    );
+    void (origFetch || fetch)(`${host}/capture/`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+      keepalive: true,
+    }).catch(() => {});
   } catch {}
 }
 
@@ -1022,6 +1116,15 @@ el("btnSettingsToggle").addEventListener("click", () => {
   el("settingsPanel").classList.toggle("hidden");
 });
 
+el("btnDismissTelemetryNotice")?.addEventListener("click", () => {
+  try {
+    el("telemetryNotice")?.classList.add("hidden");
+    chrome.storage?.local
+      ?.set({ [TELEMETRY_NOTICE_FLAG]: true })
+      .catch(() => {});
+  } catch {}
+});
+
 el("telemetryToggle").addEventListener("change", (e) => {
   saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) });
   showToast(
@@ -1311,3 +1414,4 @@ el("inputImportBackup").addEventListener("change", async (e) => {
 });
 
 loadState();
+ensureTelemetryNotice();

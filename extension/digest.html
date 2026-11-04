@@ -168,6 +168,14 @@
       <span>Support me</span>
     </a>
 
+    <!-- Anonymous usage notice (G3): shown once before any capture; dismiss persists in chrome.storage.local -->
+    <div id="telemetryNotice" class="hidden px-6 pt-3">
+      <div class="flex items-start gap-2 text-[11px] text-slate-400 bg-slate-900/70 border border-slate-800 rounded-lg px-3 py-2">
+        <span class="flex-1">📊 Anonymous usage stats help keep Topic Digest free — counts only (scans, features used), never your topics, keys, or video titles. Turn off anytime in Settings.</span>
+        <button id="btnDismissTelemetryNotice" class="shrink-0 text-slate-500 hover:text-slate-200 px-1" aria-label="Dismiss usage-stats notice">✕</button>
+      </div>
+    </div>
+
     <!-- Scrollable Digest Feed -->
     <div id="digestContainer" class="flex-1 overflow-y-auto p-6 space-y-6 max-w-5xl"></div>
   </main>

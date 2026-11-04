@@ -291,6 +291,20 @@ function ttsSupportStatus(hasApi, voicesCount) {
   return "ok";
 }
 
+// ui/telemetry-utils.js
+var COUNT_BUCKETS, DURATION_BUCKETS, SCAN_ERROR_CLASSES, IMPORT_ERROR_CLASSES, BROWSERS, BUCKET_SET, DURATION_SET, SCAN_ERROR_SET, IMPORT_ERROR_SET, BROWSER_SET;
+var init_telemetry_utils = __esm(() => {
+  COUNT_BUCKETS = ["0", "1", "2-5", "6+"], DURATION_BUCKETS = ["0-5s", "5-15s", "15-30s", "30-60s", "60s+", "unknown"], SCAN_ERROR_CLASSES = [
+    "quota_or_rate_limit",
+    "api_key_problem",
+    "provider_unavailable",
+    "timeout",
+    "scan_in_progress",
+    "topic_changed",
+    "unknown"
+  ], IMPORT_ERROR_CLASSES = ["invalid_backup", "backup_too_large", "unknown"], BROWSERS = ["chrome", "firefox", "other"], BUCKET_SET = new Set(COUNT_BUCKETS), DURATION_SET = new Set(DURATION_BUCKETS), SCAN_ERROR_SET = new Set(SCAN_ERROR_CLASSES), IMPORT_ERROR_SET = new Set(IMPORT_ERROR_CLASSES), BROWSER_SET = new Set(BROWSERS);
+});
+
 // ui/digest.js
 function isPro() {
   return Boolean(state.entitlements?.isPro);
@@ -436,6 +450,21 @@ async function recordMetricEvent(event) {
     })).json();
     if (data?.metrics)
       state.metrics = data.metrics, renderMetricsUI();
+  } catch {}
+}
+function ensureTelemetryNotice() {
+  try {
+    if (!STANDALONE_ROUTE)
+      return;
+    if (typeof chrome > "u" || !chrome.storage?.local) {
+      el("telemetryNotice")?.classList.remove("hidden");
+      return;
+    }
+    chrome.storage.local.get([TELEMETRY_NOTICE_FLAG]).then((stored) => {
+      if (stored?.[TELEMETRY_NOTICE_FLAG])
+        return;
+      el("telemetryNotice")?.classList.remove("hidden"), chrome.storage.local.set({ [TELEMETRY_NOTICE_FLAG]: !0 }).catch(() => {});
+    }).catch(() => {});
   } catch {}
 }
 async function loadState() {
@@ -894,8 +923,9 @@ function openSidePanelPlayer(videoId, title, startSec, videoObj) {
   else
     notes.innerHTML = watchLinkHtml;
 }
-var STANDALONE_ROUTE, API_BASE = "", origFetch, IS_EXTENSION_PAGE, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", ttsVoices;
+var STANDALONE_ROUTE, API_BASE = "", origFetch, IS_EXTENSION_PAGE, state, activeTopic = "", scanningTopic = "", topicFilterQuery = "", topicFilterTab = "all", starterAutoCollapsedOnce = !1, initialLoadDone = !1, el = (id) => document.getElementById(id), esc = (s) => String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;"), isServerOffline = !1, serverBannerDismissed = !1, SERVER_OFFLINE_MSG = "Local server not running — run `bun run ui` on :3456, then reopen the panel.", TELEMETRY_NOTICE_FLAG = "radarTelemetryNoticeShown", ttsVoices;
 var init_digest = __esm(() => {
+  init_telemetry_utils();
   STANDALONE_ROUTE = typeof globalThis.__RADAR_STANDALONE__ === "function" ? globalThis.__RADAR_STANDALONE__ : null, origFetch = window.fetch, IS_EXTENSION_PAGE = typeof chrome < "u" && Boolean(chrome.runtime?.getURL);
   window.fetch = function(input, init) {
     if (STANDALONE_ROUTE) {
@@ -955,6 +985,11 @@ var init_digest = __esm(() => {
   });
   el("btnSettingsToggle").addEventListener("click", () => {
     el("settingsPanel").classList.toggle("hidden");
+  });
+  el("btnDismissTelemetryNotice")?.addEventListener("click", () => {
+    try {
+      el("telemetryNotice")?.classList.add("hidden"), chrome.storage?.local?.set({ [TELEMETRY_NOTICE_FLAG]: !0 }).catch(() => {});
+    } catch {}
   });
   el("telemetryToggle").addEventListener("change", (e) => {
     saveSync({ ...state.sync, telemetryOptIn: Boolean(e.target.checked) }), showToast(e.target.checked ? "Anonymous usage stats enabled" : "Anonymous usage stats disabled");
@@ -1140,6 +1175,7 @@ var init_digest = __esm(() => {
     }
   });
   loadState();
+  ensureTelemetryNotice();
 });
 
 // ui/fetch-bind.ts

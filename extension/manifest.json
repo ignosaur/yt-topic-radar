@@ -6,7 +6,8 @@
   "permissions": ["storage", "sidePanel", "tabs", "declarativeNetRequestWithHostAccess"],
   "host_permissions": [
     "https://www.youtube.com/*",
-    "https://generativelanguage.googleapis.com/*"
+    "https://generativelanguage.googleapis.com/*",
+    "https://eu.i.posthog.com/*"
   ],
   "icons": {
     "16": "icons/icon16.png",

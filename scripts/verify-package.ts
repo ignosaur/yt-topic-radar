@@ -22,6 +22,7 @@ const EXPECTED_PERMISSIONS_FIREFOX = [
 const EXPECTED_HOSTS = [
   "https://www.youtube.com/*",
   "https://generativelanguage.googleapis.com/*",
+  "https://eu.i.posthog.com/*",
 ];
 
 const REQUIRED_ENTRIES = [
@@ -228,6 +229,10 @@ const forbidden: Array<{ label: string; matches: (name: string) => boolean }> = 
   {
     label: "tts-scan-utils.js",
     matches: (name) => name.endsWith("tts-scan-utils.js"),
+  },
+  {
+    label: "telemetry-utils.js",
+    matches: (name) => name.endsWith("telemetry-utils.js"),
   },
   {
     label: ".DS_Store",

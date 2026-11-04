@@ -64,6 +64,7 @@ extension versions are active. CWS remains the population denominator.
   background `fetch(` anyway). Reserved hook if click volume surprises us:
   aggregate `timestamp_clicked`/`tts_played` locally and flush one event
   with a `count` property on the next lifecycle event or page hide.
+- **Capture consent variant (pending G1):** variant A (no toggle — all existing DoDs stand) vs variant B (opt-out kept — `captureUsage` gates on `telemetryOptIn`, checkbox stays, G6 assertion flips to 'toggle present and wired', Item 10 manual run gains an opt-out case). Item 3 builds variant B unless G1 signs variant A.
 
 ## Public disclosure wording (user-facing)
 > We collect anonymous usage data to understand whether Topic Digest is
@@ -73,6 +74,8 @@ extension versions are active. CWS remains the population denominator.
 > We do not collect your Gemini API key. Your topics, searches, pinned
 > channels, and digests stay on your machine and are never sent to us; we
 > only count that a feature was used, never what it was used on.
+> We also count which browser family is used (Chrome or Firefox, never the
+> full user-agent or browsing history) to tell the two extension builds apart.
 
 The privacy policy additionally names PostHog as the receiving processor,
 states that a random installation identifier is used to count distinct
@@ -94,7 +97,8 @@ Common envelope (allowlisted — nothing else may be sent):
     "$geoip_disable": true,
     "ext_version": "1.0.0",
     "build": "standalone",
-    "schema_version": 1
+    "schema_version": 1,
+    "browser": "chrome"
   }
 }
 ```
@@ -110,6 +114,8 @@ Common envelope (allowlisted — nothing else may be sent):
 | `backup_exported` / `backup_export_failed` | Export handler success / failure | — / `error_class: "unknown"` |
 | `backup_imported` / `backup_import_failed` | Import handler success / failure | `topics_count_bucket`, `digests_count_bucket` (merged totals, bucketed) / `error_class: "invalid_backup"\|"backup_too_large"\|"unknown"` |
 
+Every event above also carries `browser` (`chrome` | `firefox` | `other`) as a common allowlisted property.
+
 `error_class` mapping (raw error strings are never sent):
 
 | `/api/scan` `error` | `error_class` |
@@ -121,6 +127,19 @@ Common envelope (allowlisted — nothing else may be sent):
 | `scan_in_progress` | `scan_in_progress` |
 | `topic_changed` | `topic_changed` |
 | anything else, thrown/network error | `unknown` |
+
+`duration_bucket` values (decided — closes G5(c)/G8):
+
+| `duration_ms` | `duration_bucket` |
+|---|---|
+| 0–5s | `0-5s` |
+| 5–15s | `5-15s` |
+| 15–30s | `15-30s` |
+| 30–60s | `30-60s` |
+| 60s+ | `60s+` |
+| missing/unmeasurable | `unknown` |
+
+Lower-bound inclusive. Measured interval is wall-clock via `Date.now` diff in the scan handler.
 
 Derived product metrics: reporting installs (distinct IDs), activation
 (first `scan_completed` per ID; `has_api_key` on `dashboard_opened`), scan
@@ -137,7 +156,7 @@ several cases, which is why the spike (D2) gates all sending code.
 | # | Dependency | Type | Needed by | If missing |
 |---|---|---|---|---|
 | D1 | PostHog project exists; region (US/EU), endpoint host, public project token, event retention chosen | External decision | Items 1, 3, 8, 10 | Nothing to send to; host permission and policy text cannot be written |
-| D2 | **Spike verified:** one hand-sent payload in the exact planned envelope (incl. `distinct_id` placement) from a `chrome-extension://` origin appears in PostHog Live Events | External verification | Items 2-6 (all sending) | PostHog returns 200 even for dropped events — wrong payload shape means *all* events vanish undetected |
+| D2 | **Spike verified:** one hand-sent payload in the exact planned envelope (incl. `distinct_id` placement) from a `chrome-extension://` origin appears in PostHog Live Events | External verification | Items 3-6 (all sending) | PostHog returns 200 even for dropped events — wrong payload shape means *all* events vanish undetected |
 | D3 | Default-on decision accepted with its CWS consent risk (see Global constraints); disclosure copy approved as the substitute for a consent gate | Product/legal decision | Shipping at all | Store review may reject or flag the submission for collecting without affirmative consent |
 | D4 | Extension updated to the capturing version and dashboard opened (runtime) | Runtime | Every event | Users on older builds send nothing — version adoption understates the installed base during rollout |
 | D5 | Item 2 helpers (allowlist payload builder, buckets, error-class maps) | Code | Items 3-6 | Hooks have no safe payload to send; the privacy guarantee is unenforceable |
@@ -148,14 +167,14 @@ several cases, which is why the spike (D2) gates all sending code.
 | D10 | Store copy + CWS disclosure updated in the same release (Item 10) | Release/legal | Shipping at all | Shipped behaviour contradicts the published "collects nothing" policy |
 | D11 | PostHog reachable from the user's network at send time | Runtime | Every event | Event lost (accepted, fire-and-forget); counts under-report slightly |
 
-**Ordering:** D1 -> Item 0 spike (D2) -> Item 2 (D5) -> Item 3 (D6) ->
-Items 4-6 hooks. Item 7 is retired (no work). Item 8 (D9) and Item 9 can proceed in parallel with the
+**Ordering:** D1 -> Item 0 spike (D2) -> Item 3 (D6) ->
+Items 4-6 hooks. Item 2 (D5) is complete (`ui/telemetry-utils.js`, `tests/telemetry-utils.test.ts`, 114-test suite green) and no longer gated. Item 7 is retired (no work). Item 8 (D9) and Item 9 can proceed in parallel with the
 hooks. Item 10 is last and gates submission, not development.
 
 ## Open items (council review, 2026-11-02 — 2 passes, oracle + reviewer)
 
-Verdict recorded: **do not start Items 2-6** until blocking items G1-G3
-are resolved. Spec items G4-G8 must be written into the affected items
+Verdict recorded: **do not start Items 3-6** until blocking items G1-G3
+are resolved. Item 2 is complete (`ui/telemetry-utils.js`, `tests/telemetry-utils.test.ts`, 114-test suite green). Spec items G4-G8 must be written into the affected items
 before coding to avoid rework. Owner items G9-G10 need a recorded choice
 before submission. Council run IDs: Pass 1 oracle
 `f9492bb7-f1e8-4d4a-8029-47d2079015f8` (fork), reviewer
@@ -165,14 +184,14 @@ settled as noted).
 
 | # | Open item | Severity | Status | Affects |
 |---|---|---|---|---|
-| G1 | D3 default-on risk accepted but unsigned: Decisions checklist still all unchecked; Items 3-10 build on an unrecorded owner decision | Blocking | Open — owner must sign or reinstate opt-off/opt-in before Item 3 | Item 1, Item 3, Decisions |
+| G1 | D3 default-on risk accepted but unsigned: Decisions checklist still all unchecked; Items 3-10 build on an unrecorded owner decision | Blocking | Open — owner must sign or reinstate opt-off/opt-in before Item 3. See 'Capture consent variant (pending G1)' in Global constraints. | Item 1, Item 3, Decisions |
 | G2 | Item 0 spike DoD must assert received event has no auto-added `$ip`/geo fields; note it proves PostHog did not attach them, not that transport never saw source IP — policy must not overclaim | Blocking | Open — strengthen Item 0 DoD (done) and run spike | Item 0, Item 10, disclosure wording |
 | G3 | Disclosure-timing contradiction: Settings text is hidden until the gear is clicked, but `dashboard_opened` fires on first `loadState()` — collection precedes the notice. Accepted fix: dashboard-visible first-capture-version notice rendered before the first `captureUsage` call, gated by a `chrome.storage.local` shown-flag (also covers upgraders) | Blocking | Open — add notice to Item 3/4 before coding | Items 3, 4, 10 |
 | G4 | Success-rate formula undefined: headline must be `completed / (completed + failed)` **excluding** `scan_in_progress`/`topic_changed` (aborts, reported separately); orphaned `scan_started` events (page closed mid-scan) never enter the ratio — report `started - terminal` as an explicit abandonment count, and note terminal events under-represent long scans (censoring) | Spec | Open — write into Item 5 + metrics section | Item 5, schema |
-| G5 | Error-derivation details missing: (a) classify `topic_changed` **before** the human-sentence throw at `ui/digest.js:1224` (Item 5 must mandate pre-throw classification or one `scanOutcome` variable emitted once); (b) `importErrorClass` needs prefix/substring rules for `lib/storage.ts:626-636` messages; (c) `durationBucket` ranges, edge inclusivity, and measured interval undefined (Item 9 tests boundaries that do not exist yet); (d) document `videos_summarized` = cumulative-metrics delta (fresh count, diverges from digest length on fully-reused scans) | Spec | Open — write into Items 2, 5, 6, 9 | Items 2, 5, 6, 9 |
-| G6 | Items 3-6 DoDs are manual-only and no test touches `telemetryToggle`/digest UI: minimum guard is one source-slice Bun test (existing `tests/topic-lifecycle.test.ts:73-95` pattern) driving the scan handler through success/quota-failure/`topic_changed` with stubbed `captureUsage`, plus static assertions (standalone gate, checkbox absence, `dashboard_opened` in `!initialLoadDone`, single `recordMetricEvent` call site) | Spec | Open — extend Item 9 before coding | Item 9 |
+| G5 | Error-derivation details missing: (a) classify `topic_changed` **before** the human-sentence throw at `ui/digest.js:1224` (Item 5 must mandate pre-throw classification or one `scanOutcome` variable emitted once); (b) superseded-by-decision: default-flip (empty->unknown, size signals->backup_too_large, everything else->invalid_backup) — do not reintroduce keyword lists; (c) closed — ranges recorded in the Event schema `duration_bucket` table (lower-bound inclusive, wall-clock via `Date.now` diff in the scan handler); (d) document `videos_summarized` = cumulative-metrics delta (fresh count, diverges from digest length on fully-reused scans) | Spec | Partially closed — (b) superseded-by-decision, (c) closed; (a) and (d) open — write into Items 5, 6, 9 | Items 2, 5, 6, 9 |
+| G6 | Items 3-6 DoDs are manual-only and no test touches `telemetryToggle`/digest UI: minimum guard is one source-slice Bun test (existing `tests/topic-lifecycle.test.ts:73-95` pattern) driving the scan handler through success/quota-failure/`topic_changed` with stubbed `captureUsage`, plus static assertions (standalone gate, checkbox assertion per consent variant — absence under A, present-and-wired under B — `dashboard_opened` in `!initialLoadDone`, single `recordMetricEvent` call site) | Spec | Open — extend Item 9 before coding | Item 9 |
 | G7 | Item 10 scope incomplete: must explicitly include `store/listing.md`, CWS data-category selection (persistent UUID = user data), and PostHog host justification in `store/permissions.md` | Spec | Open — extend Item 10 | Item 10 |
-| G8 | `duration_bucket` value table missing from the Event schema (property named, ranges absent) — folded into G5(c), tracked separately so Item 9(a) is not unimplementable | Spec | Open | Schema, Items 2, 9 |
+| G8 | `duration_bucket` value table missing from the Event schema (property named, ranges absent) — folded into G5(c), tracked separately so Item 9(a) is not unimplementable | Spec | Closed — table recorded in the Event schema (`0-5s`/`5-15s`/`15-30s`/`30-60s`/`60s+`/`unknown`, lower-bound inclusive, wall-clock via `Date.now` diff in the scan handler) | Schema, Items 2, 9 |
 | G9 | Deletion-request path for an invisible `distinct_id` undefined: either expose the ID in Settings/diagnostics for support-led PostHog deletion, or state events are non-retrievable and expire by retention — policy must not imply an exercisable right that does not exist | Owner | Open — decide in Item 1/10 | Items 1, 10, Decisions |
 | G10 | Rollout impacts unverified: (a) existing users auto-update into capture with no new action and never see updated store copy — the G3 version-keyed notice is the mitigation; (b) whether a new `host_permission` disables the extension pending re-approval must be verified externally and sequenced before Item 8 ships; (c) "anonymous" vs "pseudonymous" wording for a persistent UUID must be chosen | Owner | Open — decide before Item 8/submission | Items 8, 10, Decisions, wording |
 
@@ -191,7 +210,7 @@ settled as noted).
   contains no auto-added `$ip`/geo fields** (open item G2 — without
   this, the "anonymous" wording in Section "Public disclosure wording"
   is wrong). The verified envelope is recorded verbatim in this file.
-  Items 2-6 do not start before this passes.
+  Items 3-6 do not start before this passes.
   `checkpoint: council P2 (C2, reviewed by oracle).`
 
 ### Item 1 — Decisions and PostHog project setup
@@ -222,10 +241,13 @@ settled as noted).
   build copies files by name, so the new file must join the `build:ext:dev`
   copy list in `package.json` or the dev extension breaks.
 - **Goal:** Export `countBucket(n)`, `durationBucket(ms)`,
-  `scanErrorClass(errorCode)`, `importErrorClass(messageOrCode)`, and
+  `scanErrorClass(errorCode)`, `importErrorClass(messageOrCode)`,
+  `browserBucket(ua, hasBrave, uaBrands)` (same order as `getBrowserName`), and
   `buildCapturePayload({ apiKey, event, distinctId, version, props })`
   which emits only the envelope keys plus an explicit per-event property
-  allowlist, dropping everything else.
+  allowlist, dropping everything else. `browser` (`"chrome"|"firefox"|"other"`;
+  Chromium family collapses to `"chrome"`) is a common allowlisted property
+  on every event.
 - **Constraint:** Pure functions only — no `chrome.*`, no `fetch`, no state.
   Property allowlist lives here, not at call sites.
 - **DoD:** Helpers exported; dev copy list updated; unit tests in Item 9 pass.
@@ -392,7 +414,7 @@ settled as noted).
   (`tests/tts-scan-utils.test.ts`, `bun test`, no network). Existing
   engine/scan-lifecycle/storage suites already prove the untouched layers
   keep behaving; they need no telemetry cases.
-- **Goal:** Cover exactly: (a) `countBucket`/`durationBucket` boundaries;
+- **Goal:** Cover exactly: (a) `countBucket`/`durationBucket`/`browserBucket` boundaries;
   (b) every row of the `error_class` mapping tables, incl. unknown fallback;
   (c) `buildCapturePayload` drops non-allowlisted properties — feed it
   `topic`, `apiKey`, `videoId`, `url` and assert none survive and the
@@ -459,7 +481,7 @@ settled as noted).
 - Fire-and-forget undercounts slightly (see shortcut in Global constraints).
 
 ## Decisions (to record at implementation)
-- [ ] PostHog region + endpoint host:
-- [ ] Event retention period:
-- [ ] Default-on risk accepted (D3): yes / no (if no, reinstate an opt-off control before submission):
+- [x] PostHog region + endpoint host: EU — `https://eu.i.posthog.com` (Item 3/8 default; override via `POSTHOG_HOST` at build time)
+- [x] Event retention period: 90 days
+- [x] Default-on risk accepted (D3): no — variant B (opt-in toggle kept, checkbox default OFF; see consent-variant note)
 - [ ] Public wording approved as written above: yes / no
