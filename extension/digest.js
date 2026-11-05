@@ -751,6 +751,9 @@ function renderMetricsUI() {
     if (proRow)
       proRow.classList.toggle("hidden", !proEnabled);
   }
+  let backupControls = el("backupControls");
+  if (backupControls)
+    backupControls.classList.toggle("hidden", !isPro());
   let upgradeLine = el("footerUpgradeLine");
   if (upgradeLine) {
     let atCap = proEnabled && !isPro() && state.sync.topics.length >= (state.monetization?.freeTopicLimit || 5);
@@ -50547,7 +50550,7 @@ var MONETIZATION_CONFIG = {
   freeTopicLimit: 5,
   supportUrl: "https://rzp.io/rzp/ypHoq1R",
   proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
-  proFeatures: ["unlimited_topics", "rss_auto_updates", "transcript_download"]
+  proFeatures: ["unlimited_topics", "rss_auto_updates", "transcript_download", "backup_export_import"]
 }, STARTER_TOPICS = {
   "Tech & AI": ["AI Coding Agents", "Local LLMs", "System Design", "Rust & Go"],
   "Finance & Markets": ["Macroeconomics", "Value Investing", "Crypto Infrastructure"],
@@ -50796,10 +50799,6 @@ function maskApiKey(apiKey) {
     return "••••";
   return `${apiKey.slice(0, 6)}...${apiKey.slice(-4)}`;
 }
-async function getEntitlements() {
-  let store = await readCliStore();
-  return { isPro: Boolean(store.entitlements?.isPro) };
-}
 async function getDigests() {
   if (isIndexedDBAvailable)
     return await get("radarDigests") || {};
@@ -50888,22 +50887,7 @@ async function updateMetrics(delta) {
     return await saveMetrics(next), next;
   });
 }
-async function exportBackupJson() {
-  let metrics = await updateMetrics({ backupsExported: 1 }), [sync, digests, seen] = await Promise.all([
-    getSyncState(),
-    getDigests(),
-    getSeenVideoIds()
-  ]), payload = {
-    version: 1,
-    exportedAt: (/* @__PURE__ */ new Date()).toISOString(),
-    sync,
-    digests,
-    seenVideoIds: [...seen],
-    metrics
-  };
-  return JSON.stringify(payload, null, 2);
-}
-var BACKUP_MAX_BYTES = 10485760, MAX_TOPIC_LENGTH = 200;
+var MAX_TOPIC_LENGTH = 200;
 function isRecord(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
@@ -50936,127 +50920,6 @@ function validateSyncValue(sync) {
     invalid("minDurationSec must be a finite number >= 0");
   if (sync.telemetryOptIn !== void 0 && typeof sync.telemetryOptIn !== "boolean")
     invalid("telemetryOptIn must be a boolean");
-}
-function validateDigestRecord(digests) {
-  if (!isRecord(digests))
-    invalid("digests must be an object");
-  for (let digest of Object.values(digests)) {
-    if (!isRecord(digest) || typeof digest.topic !== "string" || typeof digest.generatedAt !== "string" || !Array.isArray(digest.videos))
-      invalid("digests[] must have string topic/generatedAt and a videos[] array");
-    for (let video of digest.videos) {
-      if (!isRecord(video) || typeof video.videoId !== "string" || typeof video.title !== "string" || typeof video.channelName !== "string" || typeof video.url !== "string")
-        invalid("digests[].videos[] must have string videoId/title/channelName/url");
-      if (video.chapterBreakdown !== void 0) {
-        if (!Array.isArray(video.chapterBreakdown))
-          invalid("chapterBreakdown must be an array");
-        for (let ch of video.chapterBreakdown)
-          if (!isRecord(ch) || typeof ch.timestamp !== "string" || typeof ch.sectionTitle !== "string" || !Array.isArray(ch.keyPoints) || !ch.keyPoints.every((k) => typeof k === "string"))
-            invalid("chapterBreakdown[] must have string timestamp/sectionTitle and string[] keyPoints");
-      }
-      if (video.typeSpecificDetails !== void 0) {
-        if (!Array.isArray(video.typeSpecificDetails))
-          invalid("typeSpecificDetails must be an array");
-        for (let d of video.typeSpecificDetails)
-          if (!isRecord(d) || typeof d.label !== "string" || !Array.isArray(d.items) || !d.items.every((i) => typeof i === "string"))
-            invalid("typeSpecificDetails[] must have string label and string[] items");
-      }
-    }
-  }
-}
-function backupByteLength(rawJson) {
-  let buf = globalThis.Buffer;
-  if (buf?.byteLength)
-    try {
-      return buf.byteLength(rawJson, "utf8");
-    } catch {}
-  try {
-    return (/* @__PURE__ */ new TextEncoder()).encode(rawJson).length;
-  } catch {
-    return rawJson.length;
-  }
-}
-function parseAndValidateBackup(rawJson) {
-  if (typeof rawJson !== "string")
-    invalid("backup must be a JSON string");
-  if (backupByteLength(rawJson) > BACKUP_MAX_BYTES)
-    invalid("backup_too_large: backup exceeds 10 MiB");
-  let parsed;
-  try {
-    parsed = JSON.parse(rawJson);
-  } catch {
-    invalid("backup is not valid JSON");
-  }
-  if (!isRecord(parsed))
-    invalid("Invalid backup file format: missing 'sync' state.");
-  let root = parsed;
-  if (!isRecord(root.sync))
-    invalid("Invalid backup file format: missing 'sync' state.");
-  if (validateSyncValue(root.sync), root.digests !== void 0)
-    validateDigestRecord(root.digests);
-  if (root.seenVideoIds !== void 0) {
-    if (!Array.isArray(root.seenVideoIds) || !root.seenVideoIds.every((id) => typeof id === "string"))
-      invalid("seenVideoIds must be a string array");
-  }
-  if (root.metrics !== void 0) {
-    if (!isRecord(root.metrics) || !Object.values(root.metrics).every((v) => typeof v === "number" && Number.isFinite(v) && v >= 0))
-      invalid("metrics must be finite numbers >= 0");
-  }
-  return root;
-}
-async function importBackupJson(rawJson, opts = {}) {
-  let parsed = parseAndValidateBackup(rawJson), currentSync = await getSyncState(), allTopics = [
-    .../* @__PURE__ */ new Set([...currentSync.topics, ...parsed.sync.topics || []])
-  ], topicLimit = (opts.enforceTopicLimit === !1 ? !0 : (await getEntitlements()).isPro) ? allTopics.length : Math.max(currentSync.topics.length, MONETIZATION_CONFIG.freeTopicLimit), mergedTopics = allTopics.slice(0, topicLimit), keptTopics = new Set(mergedTopics), channelMap = /* @__PURE__ */ new Map;
-  for (let ch of [
-    ...currentSync.pinnedChannels,
-    ...parsed.sync.pinnedChannels || []
-  ])
-    if (ch?.channelId && keptTopics.has(ch.topic))
-      channelMap.set(`${ch.topic}:${ch.channelId}`, ch);
-  let mergedTopicMeta = {};
-  for (let [topic, meta] of Object.entries({
-    ...currentSync.topicMeta || {},
-    ...parsed.sync.topicMeta || {}
-  }))
-    if (keptTopics.has(topic))
-      mergedTopicMeta[topic] = meta;
-  let nextSync = {
-    topics: mergedTopics,
-    pinnedChannels: [...channelMap.values()],
-    minDurationSec: parsed.sync.minDurationSec || currentSync.minDurationSec,
-    topicMeta: mergedTopicMeta,
-    telemetryOptIn: parsed.sync.telemetryOptIn ?? currentSync.telemetryOptIn ?? !1
-  };
-  await saveSyncState(nextSync);
-  let mergedDigests = {
-    ...await getDigests(),
-    ...parsed.digests || {}
-  };
-  if (isIndexedDBAvailable)
-    await set("radarDigests", mergedDigests);
-  else {
-    let store = await readCliStore();
-    store.digests = mergedDigests, await writeCliStore(store);
-  }
-  let seenSet = await getSeenVideoIds();
-  for (let id of parsed.seenVideoIds || [])
-    seenSet.add(id);
-  if (isIndexedDBAvailable)
-    await set("seenVideoIds", [...seenSet]);
-  else {
-    let store = await readCliStore();
-    store.seenVideoIds = [...seenSet], await writeCliStore(store);
-  }
-  if (parsed.metrics) {
-    let curMetrics = await getMetrics(), mergedMetrics = { ...curMetrics };
-    for (let k of METRIC_KEYS)
-      mergedMetrics[k] = Math.max(curMetrics[k] || 0, parsed.metrics[k] || 0);
-    await saveMetrics(mergedMetrics);
-  }
-  return {
-    topicsCount: mergedTopics.length,
-    digestsCount: Object.keys(mergedDigests).length
-  };
 }
 
 // lib/engine.ts
@@ -51368,18 +51231,9 @@ async function handleApi(input, init) {
   if (path === "/api/transcript" && method === "GET")
     return json2({ error: "upgrade_required" }, 403);
   if (path === "/api/backup/export" && method === "GET")
-    return new Response(await exportBackupJson(), {
-      headers: { "Content-Type": "application/json" }
-    });
+    return json2({ error: "upgrade_required" }, 403);
   if (path === "/api/backup/import" && method === "POST")
-    try {
-      let stats = await importBackupJson(await readBodyText(init), {
-        enforceTopicLimit: !1
-      });
-      return json2({ ok: !0, ...stats });
-    } catch (err) {
-      return json2({ error: String(err?.message || err) }, 400);
-    }
+    return json2({ error: "upgrade_required" }, 403);
   return new Response("Not Found", { status: 404 });
 }
 window.__RADAR_STANDALONE__ = handleApi;

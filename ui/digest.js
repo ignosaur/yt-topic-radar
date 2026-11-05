@@ -510,6 +510,8 @@ function renderMetricsUI() {
     const proRow = proToggle.closest("label");
     if (proRow) proRow.classList.toggle("hidden", !proEnabled);
   }
+  const backupControls = el("backupControls");
+  if (backupControls) backupControls.classList.toggle("hidden", !isPro());
   const upgradeLine = el("footerUpgradeLine");
   if (upgradeLine) {
     const atCap =

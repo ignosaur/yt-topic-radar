@@ -71,6 +71,7 @@ test("state returns freemium + entitlements, free by default", async () => {
   expect(data.monetization.freeTopicLimit).toBe(5);
   expect(data.monetization.proEnabled).toBe(true);
   expect(data.monetization.proFeatures).toContain("transcript_download");
+  expect(data.monetization.proFeatures).toContain("backup_export_import");
   expect(data.entitlements).toEqual({ isPro: false });
 });
 
@@ -93,6 +94,15 @@ test("free: grow to 5 ok, 6th rejected 403; rss 403", async () => {
   expect(rss.status).toBe(403);
 });
 
+test("backup: free gets 403 on export and import", async () => {
+  const exp = await fetch(`${BASE}/api/backup/export`);
+  expect(exp.status).toBe(403);
+  expect(((await exp.json()) as any).error).toBe("upgrade_required");
+  const imp = await post("/api/backup/import", {});
+  expect(imp.status).toBe(403);
+  expect(imp.data.error).toBe("upgrade_required");
+});
+
 test("entitlements endpoint validates boolean", async () => {
   const bad = await post("/api/entitlements", { isPro: "yes" });
   expect(bad.status).toBe(400);
@@ -109,7 +119,7 @@ test("pro: 6 topics accepted; backup excludes entitlements", async () => {
   expect(backup).not.toContain("isPro");
 });
 
-test("downgrade: grandfathered shrink allowed, import clamps to max(current,5)", async () => {
+test("downgrade: grandfathered shrink allowed, free backup import rejected 403", async () => {
   await post("/api/entitlements", { isPro: false });
   // shrink from 6 to 2 is allowed even though a naive >5 check would block saves
   const shrink = await post("/api/sync", { topics: topics(2) });
@@ -131,14 +141,13 @@ test("downgrade: grandfathered shrink allowed, import clamps to max(current,5)",
     method: "POST",
     body: backup,
   });
-  const data: any = await res.json();
-  expect(res.status).toBe(200);
-  expect(data.topicsCount).toBe(5);
+  expect(res.status).toBe(403);
+  expect(((await res.json()) as any).error).toBe("upgrade_required");
   const state: any = await (await fetch(`${BASE}/api/state`)).json();
-  expect(state.sync.topics.length).toBe(5);
+  expect(state.sync.topics.length).toBe(2);
 });
 
-test("grandfathered free user: re-save at current count ok, growth rejected, import never truncates", async () => {
+test("grandfathered free user: re-save at current count ok, growth rejected, backup import 403 keeps topics", async () => {
   await post("/api/entitlements", { isPro: true });
   const grow = await post("/api/sync", { topics: topics(7) });
   expect(grow.status).toBe(200);
@@ -164,8 +173,9 @@ test("grandfathered free user: re-save at current count ok, growth rejected, imp
     method: "POST",
     body: backup,
   });
-  const data: any = await res.json();
-  expect(data.topicsCount).toBe(7);
+  expect(res.status).toBe(403);
+  const state: any = await (await fetch(`${BASE}/api/state`)).json();
+  expect(state.sync.topics.length).toBe(7);
 });
 
 test("concurrent scans: second gets 409 scan_in_progress", async () => {
@@ -250,6 +260,7 @@ test("JSON routes reject non-JSON Content-Type, import keeps raw body", async ()
   });
   expect(bad.status).toBe(415);
   // import accepts raw text/plain with no Origin (dashboard posts raw file text)
+  await post("/api/entitlements", { isPro: true });
   const state: any = await (await fetch(`${BASE}/api/state`)).json();
   const backup = JSON.stringify({
     version: 1,
@@ -277,6 +288,7 @@ test("JSON routes reject non-JSON Content-Type, import keeps raw body", async ()
     body: backup,
   });
   expect(evilImport.status).toBe(403);
+  await post("/api/entitlements", { isPro: false });
 });
 
 test("tricky Content-Type rejected, charset suffix still passes", async () => {

@@ -135,6 +135,16 @@ flow (see checked box below).
 
 ## 6. Phase 5 (deferred) — Real Payments + Identity
 
+**Pro plan addition (decided for V1):** 1-click backup **Export/Import (.json)**
+is a Pro/paid value-added feature (`backup_export_import` in
+`MONETIZATION_CONFIG.proFeatures`), not a V1/free feature. V1 hides the
+sidebar Export/Import controls unless Pro and both `/api/backup/*` routes
+return `403 upgrade_required` for non-Pro (server + standalone, mirroring
+transcript download); standalone V1 therefore ships with backup disabled
+entirely. The underlying `exportBackupJson`/`importBackupJson` library code
+(and its free-tier import clamp) stays — it is re-enabled for users simply by
+granting Pro, with no data-format change.
+
 Phase 4 cannot know who paid. Phase 5: separate Pro payment link (not the tip
 link) + webhook → licence key (UUID/JWT with email) → paste-to-unlock in Settings
 → server-side signature verify → persist `{ isPro, email, keyHash }` outside

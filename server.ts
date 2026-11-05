@@ -555,8 +555,10 @@ const server = Bun.serve({
       }
     }
 
-    // API: 1-Click Export Backup JSON
+    // API: 1-Click Export Backup JSON (Pro only — see proFeatures)
     if (url.pathname === "/api/backup/export" && req.method === "GET") {
+      const { isPro } = await getEntitlements();
+      if (!isPro) return json({ error: "upgrade_required" }, 403);
       const backupJson = await exportBackupJson();
       const date = new Date().toISOString().slice(0, 10);
       return new Response(backupJson, {
@@ -568,8 +570,10 @@ const server = Bun.serve({
       });
     }
 
-    // API: 1-Click Import Backup JSON
+    // API: 1-Click Import Backup JSON (Pro only — see proFeatures)
     if (url.pathname === "/api/backup/import" && req.method === "POST") {
+      const { isPro } = await getEntitlements();
+      if (!isPro) return json({ error: "upgrade_required" }, 403);
       try {
         const raw = await req.text();
         const stats = await importBackupJson(raw);

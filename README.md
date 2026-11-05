@@ -14,7 +14,7 @@ TypeScript + Bun. One shared engine (`lib/`) runs in the local dashboard and the
 - **Cross-video synthesis** — consensus, disagreements and what is new across the scanned videos.
 - **Scalable sidebar** — topic filter box, `All | Ready | ★ Starred` tabs, starred topics pinned on top, starter packs auto-collapse at 4+ topics.
 - **Time saved** — local counter shown in the header (`⏱️ 20m saved • 8 videos distilled`), plus a prominent `☕ Support me` button.
-- **Read Aloud and 1-click Export/Import** of topics, pinned channels, digests, metrics and seen-video IDs.
+- **Read Aloud** of digests. (1-click backup Export/Import is Pro — see Free vs Pro below; not in standalone V1.)
 
 ## Quick start (dashboard)
 
@@ -72,6 +72,7 @@ The **dev** build (`build:ext:dev`) remains the thin shell over `bun run ui` at 
 | Topics | Up to 5 | Unlimited |
 | Scans | Manual `Scan Topic Now` | Manual + background RSS polling of pinned channels (30 min) |
 | New-video alerts | — | Chrome notifications (max 3 per channel per poll) + toolbar badge |
+| Backup Export/Import (.json) | — | 1-click export/import of topics, pinned channels, digests, metrics and seen-video IDs |
 
 Unlock Pro with the `Pro (I paid)` toggle in the Settings drawer (manual unlock in Phase 4; real payment/licence tracking is Phase 5). This table applies to server/dev mode — the standalone prod build ships Pro off (unlimited topics, no RSS).
 
@@ -98,8 +99,8 @@ Model names change; the fallback chain handles keys that do not have the newest 
 | `/api/scan` | POST | Search → filter → transcript → summarize → synthesize |
 | `/api/metrics` | POST | Increment `timestampClick` / `ttsPlay` |
 | `/api/rss?channelId=` | GET | Latest videos for a pinned channel (Pro only, 403 otherwise) |
-| `/api/backup/export` | GET | Download backup JSON |
-| `/api/backup/import` | POST | Merge backup JSON (no duplicates) |
+| `/api/backup/export` | GET | Download backup JSON (Pro only, 403 otherwise) |
+| `/api/backup/import` | POST | Merge backup JSON, no duplicates (Pro only, 403 otherwise) |
 
 ## Data & privacy
 

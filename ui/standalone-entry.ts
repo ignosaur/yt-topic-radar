@@ -4,14 +4,12 @@ import { runStandaloneScan } from "../lib/engine";
 import {
   MONETIZATION_CONFIG,
   STARTER_TOPICS,
-  exportBackupJson,
   clearApiKey,
   maskApiKey,
   getApiKey,
   getDigests,
   getMetrics,
   getSyncState,
-  importBackupJson,
   saveApiKey,
   saveSyncState,
   StaleSyncError,
@@ -182,21 +180,15 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
     return json({ error: "upgrade_required" }, 403);
   }
 
+  // Backup export/import is a Pro plan feature (see proFeatures in
+  // storage.ts). Standalone v1 has no Pro entitlements, so it stays locked
+  // here too — mirrors the server routes' 403 instead of giving it away.
   if (path === "/api/backup/export" && method === "GET") {
-    return new Response(await exportBackupJson(), {
-      headers: { "Content-Type": "application/json" },
-    });
+    return json({ error: "upgrade_required" }, 403);
   }
 
   if (path === "/api/backup/import" && method === "POST") {
-    try {
-      const stats = await importBackupJson(await readBodyText(init), {
-        enforceTopicLimit: false,
-      });
-      return json({ ok: true, ...stats });
-    } catch (err: any) {
-      return json({ error: String(err?.message || err) }, 400);
-    }
+    return json({ error: "upgrade_required" }, 403);
   }
 
   return new Response("Not Found", { status: 404 });

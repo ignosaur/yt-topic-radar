@@ -127,7 +127,8 @@
 
       <a id="footerUpgradeLine" href="https://rzp.io/rzp/ypHoq1R" target="_blank" rel="noopener noreferrer" class="hidden block text-center text-[11px] font-semibold text-amber-300 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 rounded-lg px-2.5 py-1.5 transition">⭐ Free limit reached — upgrade for unlimited topics + RSS auto-updates & alerts</a>
 
-      <div class="grid grid-cols-2 gap-2">
+      <!-- Backup export/import is a Pro feature: hidden unless Pro (see proFeatures) -->
+      <div id="backupControls" class="hidden grid grid-cols-2 gap-2">
         <button id="btnExportBackup" class="flex items-center justify-center gap-1.5 bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs font-medium py-1.5 px-2.5 rounded-lg border border-slate-700 transition">
           ⬇️ Export .json
         </button>

@@ -179,8 +179,9 @@ if (scenario === "perm") {
   if (bad.status !== 400) fail(`server topics:[42] gave ${bad.status}`);
   console.log(`SERVER_400: ${(await bad.json()).error}`);
   if (JSON.stringify((await state()).sync) !== JSON.stringify(before.sync)) fail("server state changed on 400");
+  // Backup import is Pro-only: free is rejected 403 before validation.
   const badImport = await route("/api/backup/import", { method: "POST", body: JSON.stringify({ sync: { topics: ["T"] }, seenVideoIds: 42 }) });
-  if (badImport.status !== 400) fail(`server bad import gave ${badImport.status}`);
+  if (badImport.status !== 403) fail(`server bad import gave ${badImport.status}`);
   if (JSON.stringify((await state()).sync) !== JSON.stringify(before.sync)) fail("server state changed on bad import");
   const ok = await post("/api/sync", { topics: ["Good Topic"] });
   if (ok.status !== 200) fail(`server valid sync gave ${ok.status}`);
