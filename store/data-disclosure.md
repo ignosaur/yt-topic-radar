@@ -81,9 +81,9 @@ extension origin. It is required for scans and does not apply to any other site 
 
 ## 10. Contact
 
-Privacy and support contact: `[OWNER: support email]`
+Privacy and support contact: `joy.calcutta@gmail.com`
 
-Privacy policy URL: `[OWNER: privacy policy URL]`
+Privacy policy URL: `https://ignosaur.github.io/yt-topic-radar/privacy-policy.html`
 
 ---
 

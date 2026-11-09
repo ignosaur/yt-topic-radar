@@ -350,6 +350,12 @@ const server = Bun.serve({
       });
     }
 
+    if (url.pathname === "/telemetry-utils.js") {
+      return new Response(Bun.file("ui/telemetry-utils.js"), {
+        headers: { "Content-Type": "text/javascript; charset=utf-8", ...cors },
+      });
+    }
+
     if (url.pathname === "/digest.css") {
       return new Response(Bun.file("ui/digest.css"), {
         headers: { "Content-Type": "text/css; charset=utf-8", ...cors },

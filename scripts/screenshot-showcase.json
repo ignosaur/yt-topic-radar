@@ -1,0 +1,159 @@
+{
+  "sync": {
+    "topics": [
+      "How octopuses solve puzzles",
+      "Why cities sound different at night",
+      "How coffee traveled the world",
+      "Secrets of tidal pools",
+      "Sleep science: what dreams do"
+    ],
+    "pinnedChannels": [
+      {
+        "channelId": "tidepool-lab",
+        "channelName": "Tidepool Lab",
+        "topic": "How octopuses solve puzzles"
+      }
+    ],
+    "topicMeta": {
+      "How octopuses solve puzzles": { "starred": true },
+      "Why cities sound different at night": { "starred": true },
+      "How coffee traveled the world": { "starred": true }
+    },
+    "minDurationSec": 0,
+    "telemetryOptIn": false
+  },
+  "digests": {
+    "How octopuses solve puzzles": {
+      "generatedAt": "2026-11-05T09:30:00.000Z",
+      "requestedCount": 3,
+      "crossVideoSynthesis": "Across these videos a shared pattern emerges: octopuses explore with their arms first and commit later. Touch sensors in each arm test texture, weight, and openings, while the animal watches the result and adjusts. The synthesis takeaway is modest — puzzle-solving looks less like planning every step and more like fast, curious trial and error guided by touch. Where the videos agree: enrichment puzzles with clear openings hold attention longest. Where they differ: how much is habit versus novel problem-solving in each attempt.",
+      "suggestedSubtopics": [
+        "How cuttlefish change color",
+        "Why kelp forests shelter young fish",
+        "How crabs navigate by smell"
+      ],
+      "skippedVideos": [{ "title": "Octopus tries viral jar challenge (Short)", "reason": "Short" }],
+      "videos": [
+        {
+          "videoId": "octo-box-101",
+          "url": "https://www.youtube.com/watch?v=octo-box-101",
+          "title": "How an Octopus Opens a Locked Box in Under a Minute",
+          "channelId": "tidepool-lab",
+          "channelName": "Tidepool Lab",
+          "videoType": "explainer",
+          "worthWatchingFull": "Yes",
+          "worthWatchingReason": "clear close-ups of each attempt; calm narration, no hype",
+          "signalScore": 92,
+          "durationText": "12:34",
+          "coreThesis": "An octopus tests a latched box arm by arm, finds the loose edge, and repeats the motion that worked — touch-led learning you can see happen.",
+          "chapterBreakdown": [
+            {
+              "timestamp": "00:00",
+              "sectionTitle": "The locked box",
+              "keyPoints": [
+                "A clear box with a sliding lid and one crab snack inside",
+                "What counts as a genuine attempt versus a touch"
+              ]
+            },
+            {
+              "timestamp": "02:15",
+              "sectionTitle": "First touch",
+              "keyPoints": [
+                "Two arms map the edges while the animal stays anchored",
+                "The loose corner gets most of the attention"
+              ]
+            },
+            {
+              "timestamp": "05:40",
+              "sectionTitle": "Trial and error",
+              "keyPoints": [
+                "Pull, twist, pause — then repeat the pull that moved the lid",
+                "Why the keeper waits instead of helping"
+              ]
+            },
+            {
+              "timestamp": "09:12",
+              "sectionTitle": "What it tells us",
+              "keyPoints": [
+                "Distributed sensing: arms report back before the animal commits",
+                "Limits of one demo — tank, individual, and mood all matter"
+              ]
+            }
+          ],
+          "typeSpecificDetails": [
+            {
+              "label": "Field notes",
+              "items": [
+                "Tank setup: clear box, sliding lid, single opening",
+                "Session length kept short to avoid stress"
+              ]
+            }
+          ]
+        },
+        {
+          "videoId": "octo-arms-202",
+          "url": "https://www.youtube.com/watch?v=octo-arms-202",
+          "title": "What Octopus Arms Seem to Know on Their Own",
+          "channelId": "kelp-field-notes",
+          "channelName": "Kelp Field Notes",
+          "videoType": "field_notes",
+          "worthWatchingFull": "Skim timestamps",
+          "worthWatchingReason": "middle section is strongest; opening recap can be skipped",
+          "signalScore": 88,
+          "durationText": "9:47",
+          "coreThesis": "Each arm carries sensors that react to texture and taste, so grasping and letting go look semi-independent until the animal steers the whole body.",
+          "chapterBreakdown": [
+            {
+              "timestamp": "00:00",
+              "sectionTitle": "Arms first, body follows",
+              "keyPoints": ["How suckers sample a surface before gripping"]
+            },
+            {
+              "timestamp": "01:23",
+              "sectionTitle": "The maze tube",
+              "keyPoints": [
+                "One arm threads a bent tube while the others anchor",
+                "Where it hesitates — and what that suggests"
+              ]
+            },
+            {
+              "timestamp": "04:05",
+              "sectionTitle": "Letting go",
+              "keyPoints": ["Why dropping an object is also information"]
+            }
+          ],
+          "typeSpecificDetails": []
+        },
+        {
+          "videoId": "kelp-hunt-303",
+          "url": "https://www.youtube.com/watch?v=kelp-hunt-303",
+          "title": "Inside a Kelp Forest Hunt After Sunset",
+          "channelId": "blue-water-diary",
+          "channelName": "Blue Water Diary",
+          "videoType": "field_notes",
+          "worthWatchingFull": "Yes",
+          "worthWatchingReason": "rare dusk footage with quiet, specific commentary",
+          "signalScore": 85,
+          "durationText": "14:02",
+          "coreThesis": "A night dive shows how an octopus uses kelp cover and slow movement to approach crabs — patience over speed.",
+          "chapterBreakdown": [
+            {
+              "timestamp": "00:00",
+              "sectionTitle": "Entering the forest",
+              "keyPoints": ["Light, current, and where to look first"]
+            },
+            {
+              "timestamp": "07:30",
+              "sectionTitle": "The approach",
+              "keyPoints": [
+                "Freezing, color shift, then a short final reach",
+                "What the crab does in response"
+              ]
+            }
+          ],
+          "typeSpecificDetails": []
+        }
+      ]
+    }
+  }
+}

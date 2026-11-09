@@ -916,7 +916,7 @@ function renderMainDigest() {
     else if (summarized < requested && digest.stopReason === "attempt_limit")
       text += " · replacement limit reached";
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
-  })(), transcriptPro = isPro(), videosHtml = digest.videos.map((v, idx) => {
+  })(), videosHtml = digest.videos.map((v, idx) => {
     let verdictColor = v.worthWatchingFull === "Yes" ? "bg-emerald-500/20 text-emerald-300 border-emerald-500/30" : v.worthWatchingFull === "Skim timestamps" ? "bg-amber-500/20 text-amber-300 border-amber-500/30" : "bg-slate-700/50 text-slate-300 border-slate-600", chaptersHtml = (v.chapterBreakdown || []).map((c) => `
           <div class="border-l-2 border-slate-700 pl-3 py-1 space-y-1">
             <div class="flex items-center gap-2">
@@ -951,7 +951,7 @@ function renderMainDigest() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button data-tts="${idx}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">\uD83D\uDD0A Read Aloud</button>
-              ${transcriptPro ? `<button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>` : ""}
+              <button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>
               <button data-pin-id="${esc(v.channelId)}" data-pin-name="${esc(v.channelName)}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">\uD83D\uDCCC Pin Channel</button>
             </div>
           </div>
@@ -1157,10 +1157,6 @@ function transcriptToText(video, blocks) {
 async function downloadTranscript(v) {
   try {
     let res = await fetch(`/api/transcript?videoId=${encodeURIComponent(v.videoId)}`), data = await res.json().catch(() => ({}));
-    if (res.status === 403) {
-      showToast("Transcript download is a Pro feature — upgrade to unlock", !0);
-      return;
-    }
     if (!res.ok || !Array.isArray(data.blocks) || data.blocks.length === 0)
       throw Error(data.error || "Transcript unavailable for this video");
     let blob = new Blob([transcriptToText(v, data.blocks)], { type: "text/plain;charset=utf-8" }), url = URL.createObjectURL(blob), a = document.createElement("a");
@@ -50550,7 +50546,7 @@ var MONETIZATION_CONFIG = {
   freeTopicLimit: 5,
   supportUrl: "https://rzp.io/rzp/ypHoq1R",
   proUpgradeUrl: "https://rzp.io/rzp/ypHoq1R",
-  proFeatures: ["unlimited_topics", "rss_auto_updates", "transcript_download", "backup_export_import"]
+  proFeatures: ["unlimited_topics", "rss_auto_updates", "backup_export_import"]
 }, STARTER_TOPICS = {
   "Tech & AI": ["AI Coding Agents", "Local LLMs", "System Design", "Rust & Go"],
   "Finance & Markets": ["Macroeconomics", "Value Investing", "Crypto Infrastructure"],
@@ -51228,8 +51224,19 @@ async function handleApi(input, init) {
   }
   if (path === "/api/entitlements" && method === "POST")
     return json2({ ok: !0, entitlements: { isPro: !1 } });
-  if (path === "/api/transcript" && method === "GET")
-    return json2({ error: "upgrade_required" }, 403);
+  if (path === "/api/transcript" && method === "GET") {
+    let videoId = new URLSearchParams(input.split("?")[1] ?? "").get("videoId") || "";
+    if (!/^[\w-]{11}$/.test(videoId))
+      return json2({ error: "valid videoId required" }, 400);
+    try {
+      let t = await fetchTimestampedTranscript(videoId);
+      if (!t.blocks || t.blocks.length === 0)
+        return json2({ error: "transcript_unavailable" }, 502);
+      return json2({ videoId, blocks: t.blocks });
+    } catch {
+      return json2({ error: "transcript_unavailable" }, 502);
+    }
+  }
   if (path === "/api/backup/export" && method === "GET")
     return json2({ error: "upgrade_required" }, 403);
   if (path === "/api/backup/import" && method === "POST")

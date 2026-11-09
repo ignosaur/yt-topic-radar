@@ -30,6 +30,7 @@ yt-topic-radar-extension.zip
 demo-videos*/
 test-results/
 *.mp4
+!store/promo-final.mp4
 demo_*.spec.ts
 *.log
 
