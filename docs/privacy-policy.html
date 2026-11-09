@@ -3,7 +3,7 @@ layout: default
 title: Privacy Policy
 ---
 
-  <header class="page-header">
+  <div class="policy-header">
     <div class="wrap">
       <h1>Privacy Policy</h1>
       <p class="subtitle">Topic Digest for YouTube — browser extension</p>
@@ -12,10 +12,10 @@ title: Privacy Policy
         <p><strong>Contact:</strong> <span>joy.calcutta@gmail.com</span></p>
       </div>
     </div>
-  </header>
+  </div>
 
   <main class="wrap">
-    <section aria-labelledby="overview">
+    <div aria-labelledby="overview">
       <h2 id="overview">1. Overview</h2>
       <p>
         Topic Digest for YouTube is an independent, unofficial browser extension. It is not
@@ -33,9 +33,9 @@ title: Privacy Policy
         Digests, usage counters, and seen-video IDs are stored in this browser's IndexedDB.
         The extension talks to YouTube and to Google's Gemini API using your own API key, and to PostHog only when you enable optional usage sharing.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="stored">
+    <div aria-labelledby="stored">
       <h2 id="stored">2. Data stored on your device</h2>
       <p>
         The extension uses Chrome's storage APIs and the browser's IndexedDB. The table below
@@ -85,9 +85,9 @@ title: Privacy Policy
         digests, usage counters, and seen-video IDs. <strong>Backups never include your Gemini
         API key.</strong>
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="off-device">
+    <div aria-labelledby="off-device">
       <h2 id="off-device">3. Data sent off your device</h2>
       <p>
         The extension sends network requests only for the actions you start, and only to the
@@ -112,9 +112,9 @@ title: Privacy Policy
         There is no developer-operated server in the request path. The developer does not receive
         your topics, digests, API key, or transcripts. With usage sharing enabled, the developer can view the limited usage events described below in PostHog.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="never">
+    <div aria-labelledby="never">
       <h2 id="never">4. What we never collect</h2>
       <ul>
         <li>No developer server or relay for YouTube or Gemini requests.</li>
@@ -129,9 +129,9 @@ title: Privacy Policy
       <p>
         Optional usage statistics are off by default. Enable them in Settings to send feature-use counts, scan outcomes, bucketed counts and durations, browser family, extension version, and a random installation identifier to PostHog in the EU. We never send your Gemini key, topics, searches, pins, video details, transcripts, digests, backup contents, or raw errors. Events are retained for 3 months, with older events removed at monthly cleanup. Turn sharing off anytime in Settings. The identifier is pseudonymous: it links events from the same installation without identifying your account. It is stored only in chrome.storage.local, never synced or included in backups. IP addresses are not stored with events, and location enrichment is disabled in our payloads; the network service still processes the source IP to receive requests.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="sync">
+    <div aria-labelledby="sync">
       <h2 id="sync">5. Chrome sync note</h2>
       <p>
         Data the extension writes to <code>chrome.storage.sync</code> — topics, pinned channels,
@@ -144,9 +144,9 @@ title: Privacy Policy
         Your Gemini API key is stored with <code>chrome.storage.local</code> instead. It stays on
         the device where you entered it and is not part of Chrome sync.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="retention">
+    <div aria-labelledby="retention">
       <h2 id="retention">6. Retention and deletion</h2>
       <ul>
         <li>Local product data stays on your device until you delete it or remove the extension. Optional PostHog usage events follow the separate retention window below.</li>
@@ -160,9 +160,9 @@ title: Privacy Policy
       <p>
         Optional PostHog usage events expire after the 3-month window at monthly cleanup. Turning sharing off or uninstalling stops future collection; it does not delete events already received. For a deletion request, contact the developer with the radarAnonId value from the extension’s chrome.storage.local (available through extension developer tools). Clearing local storage or reinstalling creates a new installation identifier.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="permissions">
+    <div aria-labelledby="permissions">
       <h2 id="permissions">7. Permissions and why they are needed</h2>
       <table>
         <caption>Requested permissions</caption>
@@ -210,9 +210,9 @@ title: Privacy Policy
         uses no wildcard hosts, and does not modify any other site or request type. Without it,
         scans fail because YouTube returns an error for the extension's origin.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="third-parties">
+    <div aria-labelledby="third-parties">
       <h2 id="third-parties">8. Third parties</h2>
       <p>
         The extension contacts YouTube and Google only when you ask it to scan or view content.
@@ -229,29 +229,29 @@ title: Privacy Policy
         Your use of YouTube and Google services is governed by their own terms and privacy
         policies. The extension is not affiliated with YouTube or Google.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="changes">
+    <div aria-labelledby="changes">
       <h2 id="changes">9. Changes to this policy</h2>
       <p>
         If this policy changes, the updated version will be published at this page with a new
         effective date. Material changes will be reflected in the extension's store listing or
         release notes where appropriate.
       </p>
-    </section>
+    </div>
 
-    <section aria-labelledby="contact">
+    <div aria-labelledby="contact">
       <h2 id="contact">10. Contact</h2>
       <p>
         Questions about this policy or the extension's data handling:
         joy.calcutta@gmail.com.
       </p>
-    </section>
+    </div>
   </main>
 
-  <footer class="wrap">
+  <div class="policy-disclaimer">
     <p>
       Topic Digest for YouTube is an independent, unofficial project. It is not affiliated with,
       endorsed by, or sponsored by YouTube or Google LLC. YouTube is a trademark of Google LLC.
     </p>
-  </footer>
+  </div>
