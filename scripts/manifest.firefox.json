@@ -2,11 +2,15 @@
   "manifest_version": 3,
   "name": "Topic Digest for YouTube",
   "version": "1.0.0",
-  "description": "Subscribe to topics on YouTube, filter out clickbait, and get deep timestamped AI summaries. Unofficial; not affiliated with YouTube.",
+  "description": "Follow topics, not channels: filtered video digests with clickable timestamps, summarized with your own Gemini API key.",
   "browser_specific_settings": {
     "gecko": {
       "id": "topic-digest-youtube@yt-topic-radar",
-      "strict_min_version": "115.0"
+      "strict_min_version": "115.0",
+      "data_collection_permissions": {
+        "required": ["searchTerms", "websiteContent"],
+        "optional": ["technicalAndInteraction"]
+      }
     }
   },
   "permissions": ["storage", "tabs", "declarativeNetRequestWithHostAccess"],
