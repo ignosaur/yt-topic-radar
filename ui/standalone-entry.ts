@@ -1,6 +1,7 @@
 import "./fetch-bind";
 
 import { runStandaloneScan } from "../lib/engine";
+import { fetchTimestampedTranscript } from "../lib/youtube";
 import {
   MONETIZATION_CONFIG,
   STARTER_TOPICS,
@@ -174,10 +175,16 @@ async function handleApi(input: string, init?: RequestInit): Promise<Response> {
   }
 
   if (path === "/api/transcript" && method === "GET") {
-    // Pro plan feature (see proFeatures in storage.ts). Standalone v1 has no
-    // Pro entitlements (buildState hardcodes isPro:false), so it stays locked
-    // here too — mirrors the server route's 403 instead of giving it away.
-    return json({ error: "upgrade_required" }, 403);
+    // Free in both shells: same contract as the server route.
+    const videoId = new URLSearchParams(input.split("?")[1] ?? "").get("videoId") || "";
+    if (!/^[\w-]{11}$/.test(videoId)) return json({ error: "valid videoId required" }, 400);
+    try {
+      const t = await fetchTimestampedTranscript(videoId);
+      if (!t.blocks || t.blocks.length === 0) return json({ error: "transcript_unavailable" }, 502);
+      return json({ videoId, blocks: t.blocks });
+    } catch {
+      return json({ error: "transcript_unavailable" }, 502);
+    }
   }
 
   // Backup export/import is a Pro plan feature (see proFeatures in

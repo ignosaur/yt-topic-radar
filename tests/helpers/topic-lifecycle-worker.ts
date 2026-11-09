@@ -62,7 +62,14 @@ const gate = new Promise<void>(resolve => { releaseScan = resolve; });
 const youtube = await import("../../lib/youtube");
 mock.module("../../lib/youtube", () => ({ ...youtube,
   searchAndFilterTopicWithStats: async () => ({ candidates: [], rankedPool: [{ videoId: "new-video", durationSec: 600, title: "Fixture" }], slopFilteredCount: 0 }),
-  fetchTimestampedTranscript: async () => ({ blocks: [], chapters: [] }),
+  fetchTimestampedTranscript: async (videoId: string) => {
+    if (scenario === "transcript") {
+      if (videoId === "dQw4w9WgXcQ") return { blocks: [{ timestamp: "00:00", text: "Hello" }, { timestamp: "00:45", text: "World" }], chapters: [] };
+      if (videoId === "fail1234567") throw new Error("captions unavailable fixture");
+      return { blocks: [], chapters: [] };
+    }
+    return { blocks: [], chapters: [] };
+  },
 }));
 mock.module("../../lib/summarizer", () => ({
   summarizeVideo: async () => ({ videoId: "new-video", title: "New", durationSec: 600 }),
@@ -85,7 +92,34 @@ try {
   const initial = await state();
   const remove = async () => { const current = await state(); await save({ ...current.sync, topics: current.sync.topics.filter((t: string) => t !== A) }); };
   const add = async () => { const current = await state(); await save({ ...current.sync, topics: [...current.sync.topics, A] }); };
-  if (scenario === "sync-failure") {
+  if (scenario === "transcript") {
+    // Transcript download is free (no Pro gate) in both shells: with
+    // entitlements off, validation and fetch outcomes must match the
+    // server route — never 403 upgrade_required.
+    if (mode === "server") {
+      const ent = await post("/api/entitlements", { isPro: false });
+      expect(ent.status).toBe(200);
+    }
+    const bad = await route("/api/transcript?videoId=bogus");
+    expect(bad.status).toBe(400);
+    expect(((await bad.json()) as any).error).toBe("valid videoId required");
+    const missing = await route("/api/transcript");
+    expect(missing.status).toBe(400);
+    const ok = await route("/api/transcript?videoId=dQw4w9WgXcQ");
+    expect(ok.status).toBe(200);
+    const okBody = (await ok.json()) as any;
+    expect(okBody.videoId).toBe("dQw4w9WgXcQ");
+    expect(okBody.blocks).toEqual([
+      { timestamp: "00:00", text: "Hello" },
+      { timestamp: "00:45", text: "World" },
+    ]);
+    const empty = await route("/api/transcript?videoId=empty123456");
+    expect(empty.status).toBe(502);
+    expect(((await empty.json()) as any).error).toBe("transcript_unavailable");
+    const failed = await route("/api/transcript?videoId=fail1234567");
+    expect(failed.status).toBe(502);
+    expect(((await failed.json()) as any).error).toBe("transcript_unavailable");
+  } else if (scenario === "sync-failure") {
     failSyncWrite = true;
     await expect(post("/api/sync", { ...initial.sync, topics: [B] })).rejects.toThrow("fixture sync quota exceeded");
     const failed = await state();

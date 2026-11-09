@@ -70,7 +70,7 @@ test("state returns freemium + entitlements, free by default", async () => {
   expect(data.monetization.mode).toBe("freemium");
   expect(data.monetization.freeTopicLimit).toBe(5);
   expect(data.monetization.proEnabled).toBe(true);
-  expect(data.monetization.proFeatures).toContain("transcript_download");
+  expect(data.monetization.proFeatures).not.toContain("transcript_download");
   expect(data.monetization.proFeatures).toContain("backup_export_import");
   expect(data.entitlements).toEqual({ isPro: false });
 });
@@ -208,17 +208,14 @@ test("concurrent scans: second gets 409 scan_in_progress", async () => {
   }
 }, 90000);
 
-test("transcript: free gets 403; pro validates videoId", async () => {
+test("transcript: free validates videoId (no Pro gate)", async () => {
   await post("/api/entitlements", { isPro: false });
-  const free = await fetch(`${BASE}/api/transcript?videoId=dQw4w9WgXcQ`);
-  expect(free.status).toBe(403);
-  expect(((await free.json()) as any).error).toBe("upgrade_required");
-  await post("/api/entitlements", { isPro: true });
+  // A 400 (not 403 upgrade_required) proves the gate is gone without
+  // calling the route with a valid ID, which would hit live YouTube.
   const bad = await fetch(`${BASE}/api/transcript?videoId=bogus`);
   expect(bad.status).toBe(400);
   const missing = await fetch(`${BASE}/api/transcript`);
   expect(missing.status).toBe(400);
-  await post("/api/entitlements", { isPro: false });
 });
 
 test("hostname binds 127.0.0.1", async () => {

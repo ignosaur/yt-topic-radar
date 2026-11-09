@@ -539,11 +539,9 @@ const server = Bun.serve({
       return json({ videos });
     }
 
-    // API: Timestamped transcript download (Pro). Re-fetches on demand —
+    // API: Timestamped transcript download (free). Re-fetches on demand —
     // scans only store summaries, never raw transcripts.
     if (url.pathname === "/api/transcript" && req.method === "GET") {
-      const { isPro } = await getEntitlements();
-      if (!isPro) return json({ error: "upgrade_required" }, 403);
       const videoId = url.searchParams.get("videoId") || "";
       if (!/^[\w-]{11}$/.test(videoId)) return json({ error: "valid videoId required" }, 400);
       try {

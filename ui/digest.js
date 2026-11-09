@@ -789,9 +789,7 @@ function renderMainDigest() {
     return `<p class="text-xs text-amber-300/90 pt-1" title="${titles}">${text}</p>`;
   })();
 
-  // Transcript download is a Pro plan feature (see proFeatures in storage.ts):
-  // hidden entirely unless Pro — no greyed teaser in V1.
-  const transcriptPro = isPro();
+  // Transcript download is free: button on every video card.
 
   const videosHtml = digest.videos
     .map((v, idx) => {
@@ -847,7 +845,7 @@ function renderMainDigest() {
             </div>
             <div class="flex items-center gap-2 shrink-0">
               <button data-tts="${idx}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">🔊 Read Aloud</button>
-              ${transcriptPro ? `<button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>` : ""}
+              <button data-transcript="${idx}" title="Download timestamped transcript (.txt)" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">⬇ Transcript</button>
               <button data-pin-id="${esc(v.channelId)}" data-pin-name="${esc(v.channelName)}" class="bg-slate-800 hover:bg-slate-700 text-slate-200 text-xs px-3 py-1.5 rounded-lg border border-slate-700 transition">📌 Pin Channel</button>
             </div>
           </div>
@@ -954,7 +952,7 @@ function renderMainDigest() {
     });
   });
 
-  // Bind Transcript Download (Pro-only; button isn't rendered when free)
+  // Bind Transcript Download
   container.querySelectorAll("[data-transcript]").forEach((btn) => {
     btn.addEventListener("click", async () => {
       const idx = Number(btn.getAttribute("data-transcript"));
@@ -1136,10 +1134,6 @@ async function downloadTranscript(v) {
   try {
     const res = await fetch(`/api/transcript?videoId=${encodeURIComponent(v.videoId)}`);
     const data = await res.json().catch(() => ({}));
-    if (res.status === 403) {
-      showToast("Transcript download is a Pro feature — upgrade to unlock", true);
-      return;
-    }
     if (!res.ok || !Array.isArray(data.blocks) || data.blocks.length === 0) {
       throw new Error(data.error || "Transcript unavailable for this video");
     }
