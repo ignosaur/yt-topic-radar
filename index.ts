@@ -1,3 +1,6 @@
+import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI as PostHogGoogleGenAI } from "@posthog/ai/gemini";
+import { posthog } from "./lib/posthog";
 import {
   fetchTimestampedTranscript,
   formatTimestamp,
@@ -9,6 +12,8 @@ import {
   chunkTranscriptByWindow,
   summarizeVideo,
   synthesizeTopicDigest,
+  type AiObservabilityContext,
+  type GeminiClient,
   type VideoSummary,
 } from "./lib/summarizer";
 import {
@@ -159,11 +164,18 @@ async function main() {
     return;
   }
 
+  const ai: GeminiClient = posthog
+    ? new PostHogGoogleGenAI({ apiKey, posthog }) as GeminiClient
+    : new GoogleGenAI({ apiKey });
+  const observability: AiObservabilityContext | undefined = posthog
+    ? { sessionId: `process-${process.pid}`, traceId: crypto.randomUUID() }
+    : undefined;
+
   console.log(`\n🧠 Summarizing ${candidates.length} videos with Gemini 2.5 Flash...`);
   const summaries: VideoSummary[] = [];
   for (const v of candidates) {
     const t = await fetchTimestampedTranscript(v.videoId);
-    const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters);
+    const summary = await summarizeVideo(apiKey, v, t.blocks, t.chapters, ai, observability);
     summaries.push(summary);
     await markVideoSeen(v.videoId);
     console.log(`\n--- [${summary.videoType.toUpperCase()}] ${summary.title} ---`);
@@ -174,7 +186,7 @@ async function main() {
     }
   }
 
-  const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries);
+  const synthesis = await synthesizeTopicDigest(apiKey, topic, summaries, ai, observability);
   await saveTopicDigest({
     topic,
     generatedAt: new Date().toISOString(),
@@ -188,8 +200,12 @@ async function main() {
 }
 
 if (import.meta.main) {
-  main().catch((err) => {
-    console.error("Error:", err);
-    process.exit(1);
-  });
+  main()
+    .catch((err) => {
+      console.error("Error:", err);
+      process.exitCode = 1;
+    })
+    .finally(async () => {
+      await posthog?.shutdown();
+    });
 }

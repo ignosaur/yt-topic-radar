@@ -116,6 +116,13 @@ const MODEL_CANDIDATES = [
   "gemini-flash-latest",
 ];
 
+export interface AiObservabilityContext {
+  sessionId: string;
+  traceId: string;
+}
+
+export type GeminiClient = Pick<GoogleGenAI, "models">;
+
 /**
  * 429/503 exponential backoff + per-request timeout + automatic model fallback.
  * (Chunk calls are sequential; no concurrency limiter exists here.)
@@ -137,10 +144,11 @@ function safeLog(log: (msg: string) => void, msg: string): void {
 }
 
 export async function generateWithFallback(
-  ai: GoogleGenAI,
+  ai: GeminiClient,
   params: Omit<Parameters<GoogleGenAI["models"]["generateContent"]>[0], "model">,
   sleep: (ms: number) => Promise<void> = (ms) => new Promise((r) => setTimeout(r, ms)),
-  log: (msg: string) => void = (msg) => console.log(msg)
+  log: (msg: string) => void = (msg) => console.log(msg),
+  observability?: AiObservabilityContext
 ) {
   let delayMs = 1500;
   const chainStartedAt = Date.now();
@@ -158,7 +166,13 @@ export async function generateWithFallback(
           ...params.config,
           abortSignal: ctrl.signal,
         },
-      });
+        ...(observability
+          ? {
+              posthogTraceId: observability.traceId,
+              posthogProperties: { $ai_session_id: observability.sessionId },
+            }
+          : {}),
+      } as Parameters<GoogleGenAI["models"]["generateContent"]>[0]);
       safeLog(log, `[provider] model=${model} attempt=${attempt + 1}/${MODEL_CANDIDATES.length} durationMs=${Date.now() - attemptStartedAt} outcome=ok`);
       return res;
     } catch (err: any) {
@@ -243,9 +257,10 @@ export async function summarizeVideo(
   apiKey: string,
   video: VideoCandidate,
   transcriptBlocks: TranscriptSegment[],
-  chapters: { title: string; startSec: number; timestamp: string }[]
+  chapters: { title: string; startSec: number; timestamp: string }[],
+  ai: GeminiClient = new GoogleGenAI({ apiKey }),
+  observability?: AiObservabilityContext
 ): Promise<VideoSummary> {
-  const ai = new GoogleGenAI({ apiKey });
   const chunks = chunkTranscriptByWindow(transcriptBlocks);
 
   const chapterHint =
@@ -276,7 +291,7 @@ CRITICAL RULES:
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA,
       },
-    });
+    }, undefined, undefined, observability);
     const parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
@@ -292,7 +307,7 @@ CRITICAL RULES:
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA,
       },
-    });
+    }, undefined, undefined, observability);
     const parsed = parseSummaryJson(res.text);
     return buildSummaryObject(video, parsed);
   }
@@ -312,7 +327,7 @@ CRITICAL RULES:
         responseMimeType: "application/json",
         responseSchema: SUMMARY_SCHEMA,
       },
-    });
+    }, undefined, undefined, observability);
     const part = parseSummaryJson(res.text);
     if (!firstPassMeta) firstPassMeta = part;
     if (Array.isArray(part.chapterBreakdown)) {
@@ -372,13 +387,13 @@ export function buildSummaryObject(video: VideoCandidate, raw: Record<string, un
 export async function synthesizeTopicDigest(
   apiKey: string,
   topic: string,
-  summaries: VideoSummary[]
+  summaries: VideoSummary[],
+  ai: GeminiClient = new GoogleGenAI({ apiKey }),
+  observability?: AiObservabilityContext
 ): Promise<{ crossVideoSynthesis: string; suggestedSubtopics: string[] }> {
   if (summaries.length === 0) {
     return { crossVideoSynthesis: "No videos summarized yet.", suggestedSubtopics: [] };
   }
-
-  const ai = new GoogleGenAI({ apiKey });
   const digestInput = summaries
     .map(
       (s, i) =>
@@ -402,7 +417,7 @@ export async function synthesizeTopicDigest(
         required: ["crossVideoSynthesis", "suggestedSubtopics"],
       },
     },
-  });
+  }, undefined, undefined, observability);
 
   const parsed = parseSummaryJson(res.text);
   return {
