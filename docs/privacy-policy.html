@@ -1,0 +1,257 @@
+---
+layout: default
+title: Privacy Policy
+---
+
+  <header class="page-header">
+    <div class="wrap">
+      <h1>Privacy Policy</h1>
+      <p class="subtitle">Topic Digest for YouTube — browser extension</p>
+      <div class="meta">
+        <p><strong>Effective date:</strong> <span>2026-11-09</span></p>
+        <p><strong>Contact:</strong> <span>joy.calcutta@gmail.com</span></p>
+      </div>
+    </div>
+  </header>
+
+  <main class="wrap">
+    <section aria-labelledby="overview">
+      <h2 id="overview">1. Overview</h2>
+      <p>
+        Topic Digest for YouTube is an independent, unofficial browser extension. It is not
+        affiliated with, endorsed by, or sponsored by YouTube or Google LLC. YouTube is a
+        trademark of Google LLC.
+      </p>
+      <p>
+        This policy applies to the standalone browser extension. It explains what the extension
+        stores on your device, what it sends over the network, and what it never collects. The
+        extension has no developer-operated backend or user accounts. Optional usage analytics are processed by PostHog in the EU when you enable sharing in Settings.
+      </p>
+      <p class="note">
+        In short: your topics, pins, and preferences are stored in your browser (and may sync
+        through your own Chrome profile). Your Gemini API key is stored only on this device.
+        Digests, usage counters, and seen-video IDs are stored in this browser's IndexedDB.
+        The extension talks to YouTube and to Google's Gemini API using your own API key, and to PostHog only when you enable optional usage sharing.
+      </p>
+    </section>
+
+    <section aria-labelledby="stored">
+      <h2 id="stored">2. Data stored on your device</h2>
+      <p>
+        The extension uses Chrome's storage APIs and the browser's IndexedDB. The table below
+        lists what is stored and where.
+      </p>
+      <table>
+        <caption>Local storage used by the extension</caption>
+        <thead>
+          <tr>
+            <th scope="col">Data</th>
+            <th scope="col">Where it is stored</th>
+            <th scope="col">Purpose</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td>Topics, pinned channels, and preferences (minimum video duration, starred
+              topic metadata, and the optional anonymous-usage-stats toggle)</td>
+            <td><code>chrome.storage.sync</code></td>
+            <td>Remember your setup across sessions and, if Chrome sync is enabled, across your
+              signed-in Chrome devices.</td>
+          </tr>
+          <tr>
+            <td>Gemini API key</td>
+            <td><code>chrome.storage.local</code></td>
+            <td>Authenticate your own requests to the Gemini API. This storage area is local to
+              this browser profile and is not included in Chrome sync.</td>
+          </tr>
+          <tr>
+            <td>Generated digests, usage counters (for example scans completed and videos
+              summarized), and IDs of videos already seen</td>
+            <td>IndexedDB</td>
+            <td>Show your saved digests, keep local counters, and avoid re-processing the same
+              videos.</td>
+          </tr>
+          <tr>
+            <td>Pro status flag</td>
+            <td><code>chrome.storage.sync</code> — not used in the current standalone release</td>
+            <td>The standalone v1 release ships with Pro disabled, so no Pro flag is written. If
+              a future version enables Pro, the flag would be stored in
+              <code>chrome.storage.sync</code>.</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Backups exported by the extension contain your topics, pinned channels, preferences,
+        digests, usage counters, and seen-video IDs. <strong>Backups never include your Gemini
+        API key.</strong>
+      </p>
+    </section>
+
+    <section aria-labelledby="off-device">
+      <h2 id="off-device">3. Data sent off your device</h2>
+      <p>
+        The extension sends network requests only for the actions you start, and only to the
+        following destinations (PostHog requests occur only with optional usage sharing enabled).
+      </p>
+      <ul>
+        <li>
+          <strong><code>https://www.youtube.com</code></strong> — to search for videos, open video
+          and transcript data needed for summarization, and (in builds that include the optional
+          RSS feature) to read public channel feeds. The standalone v1 release does not include
+          RSS polling.
+        </li>
+        <li>
+          <strong><code>https://generativelanguage.googleapis.com</code></strong> — to request
+          summaries and synthesis from Google's Gemini API. These requests use the Gemini API key
+          you provide and include the video information and transcript text needed to produce the
+          summary.
+        </li>
+        <li><strong><code>https://eu.i.posthog.com</code></strong> — optional usage counts, scan outcomes, buckets, browser family, extension version, and a random installation ID; no content or Gemini key.</li>
+      </ul>
+      <p>
+        There is no developer-operated server in the request path. The developer does not receive
+        your topics, digests, API key, or transcripts. With usage sharing enabled, the developer can view the limited usage events described below in PostHog.
+      </p>
+    </section>
+
+    <section aria-labelledby="never">
+      <h2 id="never">4. What we never collect</h2>
+      <ul>
+        <li>No developer server or relay for YouTube or Gemini requests.</li>
+        <li>No user accounts and no sign-in to the extension.</li>
+        <li>No automatic pageview/click capture, session recording, crash reporting, or advertising tracking.</li>
+        <li>No sale of data, no advertising profiles, and no credit or lending decisions.</li>
+        <li>No collection of your general browsing history. The extension only acts on searches
+          and videos you explicitly choose to scan.</li>
+        <li>Your Gemini API key is never synced through Chrome, never included in backups, and
+          never sent anywhere except Google's Gemini API.</li>
+      </ul>
+      <p>
+        Optional usage statistics are off by default. Enable them in Settings to send feature-use counts, scan outcomes, bucketed counts and durations, browser family, extension version, and a random installation identifier to PostHog in the EU. We never send your Gemini key, topics, searches, pins, video details, transcripts, digests, backup contents, or raw errors. Events are retained for 3 months, with older events removed at monthly cleanup. Turn sharing off anytime in Settings. The identifier is pseudonymous: it links events from the same installation without identifying your account. It is stored only in chrome.storage.local, never synced or included in backups. IP addresses are not stored with events, and location enrichment is disabled in our payloads; the network service still processes the source IP to receive requests.
+      </p>
+    </section>
+
+    <section aria-labelledby="sync">
+      <h2 id="sync">5. Chrome sync note</h2>
+      <p>
+        Data the extension writes to <code>chrome.storage.sync</code> — topics, pinned channels,
+        preferences, and (if a future version enables Pro) the Pro flag — is handled by Chrome's
+        own sync service. If you are signed in to Chrome with sync enabled, that data may be
+        transmitted to and stored in your Google account, subject to Google's terms and privacy
+        policy. It can therefore appear on other devices signed in to the same Chrome profile.
+      </p>
+      <p>
+        Your Gemini API key is stored with <code>chrome.storage.local</code> instead. It stays on
+        the device where you entered it and is not part of Chrome sync.
+      </p>
+    </section>
+
+    <section aria-labelledby="retention">
+      <h2 id="retention">6. Retention and deletion</h2>
+      <ul>
+        <li>Local product data stays on your device until you delete it or remove the extension. Optional PostHog usage events follow the separate retention window below.</li>
+        <li>You can delete topics, pinned channels, or digests from the extension interface.</li>
+        <li>Uninstalling the extension removes its local data, including
+          <code>chrome.storage.local</code> and IndexedDB entries.</li>
+        <li>The Chrome sync copy of your topics, pins, and preferences, if any, is governed by
+          your Google account rather than by this device. To remove that copy, manage or clear
+          synced data in your Chrome sync settings or your Google account's data controls.</li>
+      </ul>
+      <p>
+        Optional PostHog usage events expire after the 3-month window at monthly cleanup. Turning sharing off or uninstalling stops future collection; it does not delete events already received. For a deletion request, contact the developer with the radarAnonId value from the extension’s chrome.storage.local (available through extension developer tools). Clearing local storage or reinstalling creates a new installation identifier.
+      </p>
+    </section>
+
+    <section aria-labelledby="permissions">
+      <h2 id="permissions">7. Permissions and why they are needed</h2>
+      <table>
+        <caption>Requested permissions</caption>
+        <thead>
+          <tr>
+            <th scope="col">Permission</th>
+            <th scope="col">Why it is requested</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td><code>storage</code></td>
+            <td>Save your topics, preferences, API key, digests, and local counters.</td>
+          </tr>
+          <tr>
+            <td><code>sidePanel</code></td>
+            <td>Open the extension's dashboard in Chrome's side panel.</td>
+          </tr>
+          <tr>
+            <td><code>tabs</code></td>
+            <td>Find an open YouTube watch tab so a timestamp you click can continue in that tab.</td>
+          </tr>
+          <tr>
+            <td><code>declarativeNetRequestWithHostAccess</code></td>
+            <td>Apply one static header rule (described below) so YouTube's web API accepts
+              requests that come from the extension.</td>
+          </tr>
+          <tr>
+            <td>Host: <code>https://www.youtube.com/*</code></td>
+            <td>Search YouTube and read the public video and transcript data needed for a scan.</td>
+          </tr>
+          <tr>
+            <td>Host: <code>https://generativelanguage.googleapis.com/*</code></td>
+            <td>Send your chosen content to Gemini with your own API key to create summaries.</td>
+          </tr>
+        </tbody>
+      </table>
+      <h3>About the declarativeNetRequest rule</h3>
+      <p>
+        YouTube rejects some requests made from an extension origin. To let the extension use
+        YouTube's own web API, a single static rule sets the <code>Origin</code>,
+        <code>Referer</code>, and <code>Sec-Fetch-*</code> request headers to
+        <code>https://www.youtube.com</code> for requests to <code>||youtube.com/youtubei/</code>
+        (XMLHttpRequest only). The rule is narrow: it matches only YouTube's Innertube endpoint,
+        uses no wildcard hosts, and does not modify any other site or request type. Without it,
+        scans fail because YouTube returns an error for the extension's origin.
+      </p>
+    </section>
+
+    <section aria-labelledby="third-parties">
+      <h2 id="third-parties">8. Third parties</h2>
+      <p>
+        The extension contacts YouTube and Google only when you ask it to scan or view content.
+        Those requests are made directly from your browser. The developer is not a party to them
+        and does not receive a copy.
+      </p>
+      <ul>
+        <li><strong>YouTube (Google LLC)</strong> receives search and content requests for the
+          topics and videos you scan.</li>
+        <li><strong>Google Gemini API (Google LLC)</strong> receives the content you choose to
+          summarize, authenticated with your own API key.</li>
+      </ul>
+      <p>
+        Your use of YouTube and Google services is governed by their own terms and privacy
+        policies. The extension is not affiliated with YouTube or Google.
+      </p>
+    </section>
+
+    <section aria-labelledby="changes">
+      <h2 id="changes">9. Changes to this policy</h2>
+      <p>
+        If this policy changes, the updated version will be published at this page with a new
+        effective date. Material changes will be reflected in the extension's store listing or
+        release notes where appropriate.
+      </p>
+    </section>
+
+    <section aria-labelledby="contact">
+      <h2 id="contact">10. Contact</h2>
+      <p>
+        Questions about this policy or the extension's data handling:
+        joy.calcutta@gmail.com.
+      </p>
+    </section>
+  </main>
+
+  <footer class="wrap">
+    <p>
+      Topic Digest for YouTube is an independent, unofficial project. It is not affiliated with,
+      endorsed by, or sponsored by YouTube or Google LLC. YouTube is a trademark of Google LLC.
+    </p>
+  </footer>
